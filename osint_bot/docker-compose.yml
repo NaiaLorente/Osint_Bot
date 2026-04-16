@@ -1,0 +1,18 @@
+services:
+  osint-bot:
+    build: .
+    container_name: osint-telegram-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    # El bot solo hace peticiones salientes; no necesita puertos expuestos.
+    # Límites de recursos recomendados para un VPS pequeño.
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
