@@ -1,5 +1,7 @@
 """Handler de mensajes libres (sin comando).
 
+Para manejra mensajes de texto libre (no comandos) --> decidir si es search o ask
+
 Heurística: si hay sesión activa y el texto parece una pregunta,
 se trata como /ask. En caso contrario se trata como /search.
 """
@@ -31,7 +33,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if ALLOWED_USER_IDS and (
         not update.effective_user or update.effective_user.id not in ALLOWED_USER_IDS
     ):
-        await update.message.reply_text("⛔ No estás autorizado a usar este bot.")
+        await update.message.reply_text("No estás autorizado a usar este bot.")
         return
 
     text = (update.message.text or "").strip()

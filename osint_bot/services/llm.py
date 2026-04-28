@@ -1,4 +1,7 @@
 """Integración con OpenRouter para responder preguntas con el contexto OSINT."""
+
+"""Es la integración con Claude """
+
 import json
 import logging
 from openai import OpenAI
