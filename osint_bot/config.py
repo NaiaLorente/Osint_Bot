@@ -7,6 +7,8 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
+GOOGLE_SEARCH_API_KEY = os.getenv("GOOGLE_SEARCH_API_KEY", "").strip()
+GOOGLE_SEARCH_ENGINE_ID = os.getenv("GOOGLE_SEARCH_ENGINE_ID", "").strip()
 
 # Modelo de OpenRouter
 CLAUDE_MODEL = os.getenv("LLM_MODEL", "meta-llama/llama-3.1-8b-instruct").strip()

@@ -10,7 +10,7 @@ Claude como motor de Q&A sobre el contexto recopilado.
 
 - Búsquedas en paralelo en varias fuentes abiertas.
 - Fuentes: Wikipedia (API), **Wikidata (SPARQL — datos estructurados)**,
-  GitHub (API), noticias y web general (DDG), enlaces a LinkedIn y X/Twitter.
+  GitHub (API), noticias y web general (Google Search si está configurado, o DDG como fallback), enlaces a LinkedIn y X/Twitter.
 - Informe formateado (HTML) para Telegram con enlaces clicables.
 - Modo Q&A con Claude que responde **solo con la información recopilada**
   (no inventa datos, no deduce información sensible).
@@ -84,6 +84,8 @@ escapado de HTML y formateo de cada fuente).
 - **Anthropic:** crea una key en <https://console.anthropic.com/>.
 - **GitHub** (opcional, recomendado): un token *fine-grained* sin permisos
   eleva el rate limit de 60 a 5 000 peticiones/hora.
+- **Google Search** (opcional, para resultados idénticos a Google): sigue
+  las instrucciones en `GOOGLE_SEARCH_SETUP.md`.
 - **Tu ID de Telegram** (opcional, para restringir acceso): habla con
   [@userinfobot](https://t.me/userinfobot).
 

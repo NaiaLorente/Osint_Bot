@@ -51,8 +51,8 @@ def test_format_results_with_empty_sources():
             "web": [],
         }
     )
-    assert "Resultados OSINT para:" in out
-    assert "sin resultados" in out  # Wikipedia
+    assert "Resultados de búsqueda para:" in out
+    assert "sin resultados" in out
 
 
 def test_format_results_escapes_html():
@@ -72,29 +72,23 @@ def test_format_results_escapes_html():
     assert "&lt;script&gt;" in out
 
 
-def test_format_results_wikidata_block():
+def test_format_results_shows_top_web_results():
+    web = [
+        {"title": f"Resultado {i}", "url": f"https://example.com/{i}"}
+        for i in range(1, 9)
+    ]
     out = format_results(
         {
-            "query": "Ada Lovelace",
+            "query": "Prueba",
             "wikipedia": None,
-            "wikidata": {
-                "label": "Ada Lovelace",
-                "wikidata_url": "https://www.wikidata.org/wiki/Q7259",
-                "birth": "1815-12-10",
-                "death": "1852-11-27",
-                "gender": "femenino",
-                "website": None,
-                "occupations": ["matemática", "escritora"],
-                "countries": ["Reino Unido"],
-                "employers": [],
-            },
+            "wikidata": None,
             "github": None,
             "linkedin": [],
             "twitter": [],
             "news": [],
-            "web": [],
+            "web": web,
         }
     )
-    assert "Wikidata" in out
-    assert "1815-12-10" in out
-    assert "matemática" in out
+    assert "Resultados web" in out
+    assert out.count("<a href=") >= 8
+    assert "Resultado 8" in out

@@ -17,8 +17,9 @@ logger = logging.getLogger(__name__)
 
 WELCOME = (
     "<b>Bot OSINT — Información pública</b>\n\n"
-    "Busco información pública sobre una persona en fuentes abiertas: "
-    "Wikipedia, GitHub, LinkedIn (enlace), X/Twitter, noticias y web general.\n\n"
+    "Hago una búsqueda web para un nombre o usuario y devuelvo los 8 primeros enlaces "
+    "ordenados por relevancia. Si hay credenciales de Google Search configuradas, "
+    "usa Google; si no, cae a DuckDuckGo.\n\n"
     "<b>Comandos</b>\n"
     "/search &lt;nombre o usuario&gt; — Buscar\n"
     "/ask &lt;pregunta&gt; — Preguntar sobre la última búsqueda\n"
@@ -26,6 +27,7 @@ WELCOME = (
     "/help — Ayuda\n\n"
     "También puedes enviarme directamente un nombre (hará una búsqueda) "
     "o una pregunta con signo de interrogación (responderá sobre la última búsqueda).\n\n"
+    "Usa /ask para seguir preguntando sobre la misma búsqueda y mantener la conversación.\n\n"
     "<i>Solo información pública. Uso responsable. Respeta la privacidad y "
     "las leyes aplicables (RGPD/LOPDGDD).</i>"
 )
@@ -105,6 +107,10 @@ async def perform_question(update: Update, question: str) -> None:
     status = await update.message.reply_text("Pensando…")
     try:
         answer = answer_question(session, question)
+        history = session.get("history") or []
+        history.append({"user": question, "assistant": answer})
+        session["history"] = history
+        set_session(update.effective_chat.id, session)
         await status.edit_text(answer)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Error en Q&A")

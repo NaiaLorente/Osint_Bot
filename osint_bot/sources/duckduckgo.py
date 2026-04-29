@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def _search(query: str, max_results: int = 5) -> list[dict]:
     try:
         with DDGS() as ddgs:
-            raw = list(ddgs.text(query, max_results=max_results))
+            raw = list(ddgs.text(query, max_results=max_results, region="us-en"))
     except Exception as exc:  # noqa: BLE001
         logger.error("Error en DDG (%s): %s", query, exc)
         return []
@@ -31,8 +31,12 @@ def _search(query: str, max_results: int = 5) -> list[dict]:
     return results
 
 
-def search_web(query: str, max_results: int = 5) -> list[dict]:
-    """Búsqueda web general."""
+def search_web(query: str, max_results: int = 8) -> list[dict]:
+    """Búsqueda web general.
+
+    Devuelve los primeros resultados relevantes de búsqueda web, como un motor
+    de búsqueda, para mostrar los 8 enlaces principales.
+    """
     return _search(query, max_results=max_results)
 
 

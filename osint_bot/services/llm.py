@@ -41,16 +41,29 @@ def answer_question(osint_data: dict, question: str) -> str:
     try:
         clean = _prune(osint_data)
         context = json.dumps(clean, indent=2, ensure_ascii=False)
-        
-        # Unimos el prompt del sistema con la pregunta y el contexto
+        html_links = osint_data.get("html_links")
+        history = osint_data.get("history") or []
+
         full_prompt = (
             f"{SYSTEM_PROMPT}\n\n"
-            f"CONTEXTO OSINT (JSON):\n{context}\n\n"
-            f"PREGUNTA DEL USUARIO: {question}"
+            f"CONTEXTO OSINT (JSON):\n{context}"
         )
-        
+
+        if html_links:
+            full_prompt += f"\n\nCONTEXTO ENLACES HTML:\n{html_links}"
+
+        if history:
+            full_prompt += "\n\nCONVERSACIÓN ANTERIOR:"
+            for turn in history:
+                full_prompt += (
+                    f"\nUsuario: {turn.get('user')}\n"
+                    f"Asistente: {turn.get('assistant')}"
+                )
+
+        full_prompt += f"\n\nPREGUNTA DEL USUARIO: {question}"
+
         response = model.generate_content(full_prompt)
-        
+
         if response.text:
             return response.text.strip()
         return "Sin respuesta del modelo."
