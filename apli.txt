@@ -1,0 +1,52 @@
+Archivos raíz (versión activa del bot)
+Punto de entrada
+bot.py — Arranca el bot. Registra los 5 comandos (/start, /help, /search, /ask, /clear) y el handler de texto libre, luego inicia el polling de Telegram.
+
+Configuración
+config.py — Lee el fichero .env y expone las variables de entorno como constantes: TELEGRAM_TOKEN, ANTHROPIC_API_KEY, GITHUB_TOKEN, CLAUDE_MODEL, WIKIPEDIA_LANG y ALLOWED_USER_IDS. Lanza un error si faltan los tokens obligatorios.
+
+Handlers (interfaz con Telegram)
+commands.py — Implementa los 5 comandos del bot:
+
+/start y /help → muestran el mensaje de bienvenida
+/search → llama a run_full_search, guarda la sesión y envía el informe en trozos ≤ 3800 chars
+/ask → recupera la sesión y llama al LLM con la pregunta
+/clear → borra la sesión del chat
+Incluye _chunk_text que trocea el informe respetando saltos de línea para no superar el límite de Telegram, y _authorized que comprueba la lista blanca de IDs.
+messages.py — Maneja texto libre (sin comando). Aplica una heurística: si hay sesión activa y el texto parece una pregunta (empieza por ¿, qué, who, etc., o termina en ?), lo trata como /ask; si no, como /search.
+
+Servicios (lógica de negocio)
+osint.py — Orquestador central. run_full_search lanza las 7 fuentes en paralelo con asyncio + ThreadPoolExecutor. format_results convierte el dict de resultados en HTML formateado para Telegram con iconos, enlaces clicables y truncado de textos largos.
+
+llm.py — Cliente de Claude (Anthropic SDK). answer_question serializa los datos OSINT como JSON, los inyecta como contexto en el system prompt, y llama al modelo. El system prompt le instruye a responder solo con datos explícitos del contexto y rechazar preguntas sobre datos sensibles.
+
+Fuentes de datos
+wikipedia.py — Consulta la Wikipedia API. Busca primero en el idioma configurado (por defecto es) y hace fallback a inglés si no encuentra la página. Devuelve título, resumen (máx. 1500 chars) y URL.
+
+wikidata.py — Consulta Wikidata via SPARQL. Obtiene datos estructurados: fecha de nacimiento/muerte, género, nacionalidad, ocupaciones, empleadores y web oficial. Agrupa las filas múltiples (por las cláusulas OPTIONAL) en un único perfil.
+
+github.py — Consulta la GitHub REST API. Rechaza queries con espacios (no son usernames válidos). Devuelve perfil completo + top 5 repos ordenados por estrellas. Usa el token opcional para elevar el rate limit de 60 a 5000 req/hora.
+
+duckduckgo.py — Usa la librería ddgs para 4 tipos de búsqueda:
+
+search_web — resultados generales
+search_linkedin — busca site:linkedin.com/in "nombre" (enlace, no scraping)
+search_twitter — busca site:twitter.com OR site:x.com "nombre"
+search_news — noticias recientes via DDG news
+Almacenamiento
+sessions.py — Almacén en memoria (diccionario Python + threading.Lock para thread-safety). Guarda los resultados OSINT por chat_id. Expone get_session, set_session y clear_session.
+
+Tests
+test_basic.py — Tests unitarios sin red ni credenciales. Verifica: la heurística de preguntas (español/inglés), el troceado de texto, el formateo HTML con fuentes vacías, el escapado de HTML (prevención de XSS) y el bloque de Wikidata.
+
+Infraestructura
+requirements.txt — 6 dependencias: python-telegram-bot, wikipedia-api, requests, ddgs, anthropic, python-dotenv.
+
+Dockerfile / docker-compose.yml — Contenerización para despliegue en VPS. El contenedor corre como usuario no root, con log rotado y reinicio automático.
+
+.env.example — Plantilla de variables de entorno con los nombres de las keys necesarias.
+
+.gitignore / .dockerignore — Exclusiones de git y Docker respectivamente.
+
+La carpeta osint_bot/ es la versión modular refactorizada con la misma lógica pero organizada en submódulos (handlers/, services/, sources/, storage/). Los archivos de la raíz son funcionalmente equivalentes.
+

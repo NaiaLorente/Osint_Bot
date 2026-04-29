@@ -1,4 +1,4 @@
-"""Integración oficial con Google Gemini para responder preguntas OSINT."""
+
 import json
 import logging
 import google.generativeai as genai

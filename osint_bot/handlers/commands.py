@@ -1,4 +1,7 @@
 """Command handlers: /start, /help, /search, /ask, /clear."""
+
+""" Para manejar los comandos de Teleram. Define las funciones que manejas estos comandos"""
+
 import logging
 
 from telegram import Update
@@ -13,7 +16,7 @@ from storage.sessions import get_session, set_session, clear_session
 logger = logging.getLogger(__name__)
 
 WELCOME = (
-    "👋 <b>Bot OSINT — Información pública</b>\n\n"
+    "<b>Bot OSINT — Información pública</b>\n\n"
     "Busco información pública sobre una persona en fuentes abiertas: "
     "Wikipedia, GitHub, LinkedIn (enlace), X/Twitter, noticias y web general.\n\n"
     "<b>Comandos</b>\n"
@@ -23,7 +26,7 @@ WELCOME = (
     "/help — Ayuda\n\n"
     "También puedes enviarme directamente un nombre (hará una búsqueda) "
     "o una pregunta con signo de interrogación (responderá sobre la última búsqueda).\n\n"
-    "⚠️ <i>Solo información pública. Uso responsable. Respeta la privacidad y "
+    "<i>Solo información pública. Uso responsable. Respeta la privacidad y "
     "las leyes aplicables (RGPD/LOPDGDD).</i>"
 )
 
@@ -35,7 +38,7 @@ def _authorized(update: Update) -> bool:
 
 
 async def _deny(update: Update) -> None:
-    await update.message.reply_text("⛔ No estás autorizado a usar este bot.")
+    await update.message.reply_text("No estás autorizado a usar este bot.")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -64,7 +67,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def perform_search(update: Update, query: str) -> None:
-    status = await update.message.reply_text(f"🔎 Buscando <b>{query}</b>…", parse_mode=ParseMode.HTML)
+    status = await update.message.reply_text(f"Buscando <b>{query}</b>…", parse_mode=ParseMode.HTML)
     try:
         results = await run_full_search(query)
         set_session(update.effective_chat.id, results)
@@ -78,7 +81,7 @@ async def perform_search(update: Update, query: str) -> None:
         await status.delete()
     except Exception as exc:  # noqa: BLE001
         logger.exception("Error en búsqueda")
-        await status.edit_text(f"❌ Error durante la búsqueda: {exc}")
+        await status.edit_text(f"Error durante la búsqueda: {exc}")
 
 
 async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -99,13 +102,13 @@ async def perform_question(update: Update, question: str) -> None:
             "No hay datos en sesión. Primero haz una búsqueda con /search <nombre>."
         )
         return
-    status = await update.message.reply_text("🧠 Pensando…")
+    status = await update.message.reply_text("Pensando…")
     try:
         answer = answer_question(session, question)
         await status.edit_text(answer)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Error en Q&A")
-        await status.edit_text(f"❌ Error al responder: {exc}")
+        await status.edit_text(f"Error al responder: {exc}")
 
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -113,7 +116,7 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await _deny(update)
         return
     clear_session(update.effective_chat.id)
-    await update.message.reply_text("🗑️ Sesión borrada.")
+    await update.message.reply_text("Sesión borrada.")
 
 
 def _chunk_text(text: str, size: int) -> list[str]:

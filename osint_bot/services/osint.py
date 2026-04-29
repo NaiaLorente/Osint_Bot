@@ -1,4 +1,7 @@
 """Orquestador OSINT: lanza las búsquedas en paralelo y formatea la salida."""
+
+"""La lógica de OSINT"""
+
 import asyncio
 import html
 import logging
@@ -56,14 +59,14 @@ def _link(title: str | None, url: str | None) -> str:
 
 def format_results(results: dict) -> str:
     parts: list[str] = [
-        f"🔍 <b>Resultados OSINT para:</b> <code>{_esc(results['query'])}</code>",
+        f"<b>Resultados OSINT para:</b> <code>{_esc(results['query'])}</code>",
         "",
     ]
 
     # --- Wikipedia ---
     w = results.get("wikipedia")
     if w:
-        parts.append(f"📚 <b>Wikipedia</b> ({w.get('lang', '?')})")
+        parts.append(f"<b>Wikipedia</b> ({w.get('lang', '?')})")
         parts.append(_link(w["title"], w["url"]))
         summary = w["summary"]
         if len(summary) > 600:
@@ -71,13 +74,13 @@ def format_results(results: dict) -> str:
         parts.append(f"<i>{_esc(summary)}</i>")
         parts.append("")
     else:
-        parts.append("📚 <b>Wikipedia:</b> sin resultados")
+        parts.append("<b>Wikipedia:</b> sin resultados")
         parts.append("")
 
     # --- Wikidata ---
     wd = results.get("wikidata")
     if wd:
-        parts.append(f"🧠 <b>Wikidata</b> — {_link(wd['label'], wd['wikidata_url'])}")
+        parts.append(f"<b>Wikidata</b> — {_link(wd['label'], wd['wikidata_url'])}")
         if wd.get("birth"):
             line = f"• Nacimiento: {_esc(wd['birth'])}"
             if wd.get("death"):
@@ -98,7 +101,7 @@ def format_results(results: dict) -> str:
     # --- GitHub ---
     g = results.get("github")
     if g:
-        parts.append(f"💻 <b>GitHub</b> — {_link('@' + g['login'], g['url'])}")
+        parts.append(f"<b>GitHub</b> — {_link('@' + g['login'], g['url'])}")
         if g.get("name"):
             parts.append(f"• Nombre: {_esc(g['name'])}")
         if g.get("bio"):
@@ -121,17 +124,17 @@ def format_results(results: dict) -> str:
                 desc = f" — {_esc(repo['description'])}" if repo.get("description") else ""
                 parts.append(
                     f"   · {_link(repo['name'], repo['url'])} "
-                    f"⭐ {repo['stars']}{desc}"
+                    f"{repo['stars']}{desc}"
                 )
         parts.append("")
     else:
-        parts.append("💻 <b>GitHub:</b> sin usuario público con ese handle")
+        parts.append("<b>GitHub:</b> sin usuario público con ese handle")
         parts.append("")
 
     # --- LinkedIn ---
     li = results.get("linkedin") or []
     if li:
-        parts.append("💼 <b>LinkedIn</b> (posibles perfiles)")
+        parts.append("<b>LinkedIn</b> (posibles perfiles)")
         for r in li[:3]:
             parts.append(f"• {_link(r['title'], r['url'])}")
         parts.append("")
@@ -139,7 +142,7 @@ def format_results(results: dict) -> str:
     # --- Twitter / X ---
     tw = results.get("twitter") or []
     if tw:
-        parts.append("🐦 <b>X / Twitter</b> (posibles perfiles)")
+        parts.append("<b>X / Twitter</b> (posibles perfiles)")
         for r in tw[:3]:
             parts.append(f"• {_link(r['title'], r['url'])}")
         parts.append("")
@@ -147,7 +150,7 @@ def format_results(results: dict) -> str:
     # --- News ---
     news = results.get("news") or []
     if news:
-        parts.append("📰 <b>Noticias recientes</b>")
+        parts.append("<b>Noticias recientes</b>")
         for r in news[:4]:
             meta = f" <i>({_esc(r.get('source') or '')}, {_esc(r.get('date') or '')})</i>"
             parts.append(f"• {_link(r['title'], r['url'])}{meta}")
@@ -156,10 +159,10 @@ def format_results(results: dict) -> str:
     # --- Web general ---
     web = results.get("web") or []
     if web:
-        parts.append("🌐 <b>Otros resultados web</b>")
+        parts.append("<b>Otros resultados web</b>")
         for r in web[:5]:
             parts.append(f"• {_link(r['title'], r['url'])}")
         parts.append("")
 
-    parts.append("ℹ️ <i>Usa /ask &lt;pregunta&gt; para preguntar sobre estos datos.</i>")
+    parts.append("<i>Usa /ask &lt;pregunta&gt; para preguntar sobre estos datos.</i>")
     return "\n".join(parts)
