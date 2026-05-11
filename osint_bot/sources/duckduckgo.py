@@ -52,6 +52,16 @@ def search_twitter(name: str) -> list[dict]:
     )
 
 
+def search_instagram(name: str) -> list[dict]:
+    """Devuelve posibles perfiles públicos de Instagram para `name`."""
+    return _search(f'site:instagram.com "{name}"', max_results=3)
+
+
+def search_github(name: str) -> list[dict]:
+    """Devuelve posibles perfiles públicos de GitHub para `name`."""
+    return _search(f'site:github.com "{name}"', max_results=2)
+
+
 def search_news(name: str) -> list[dict]:
     """Noticias recientes (DDG news)."""
     try:

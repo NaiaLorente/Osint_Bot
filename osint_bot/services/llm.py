@@ -1,28 +1,16 @@
-
 import json
 import logging
-import google.generativeai as genai
 import os
+
+import google.generativeai as genai
 from dotenv import load_dotenv
 
-# Cargamos las variables del .env
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Configuración de la API de Google
-# Usamos la clave que ya tienes en tu .env
-GEMINI_API_KEY = os.getenv("OPENROUTER_API_KEY") # Tu clave AIza...
+GEMINI_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 genai.configure(api_key=GEMINI_API_KEY)
-
-# Configuramos el modelo gratuito
-model = genai.GenerativeModel(
-    model_name="gemini-2.5-flash-lite",
-    generation_config={
-        "temperature": 0.1, # Menos creatividad, más precisión para OSINT
-        "max_output_tokens": 1024,
-    }
-)
 
 SYSTEM_PROMPT = """Eres un asistente de OSINT. Tu tarea es responder preguntas \
 sobre una persona basándote ÚNICAMENTE en la información pública recopilada \
@@ -36,46 +24,66 @@ Reglas estrictas:
 - Sé conciso. Responde en el mismo idioma que la pregunta.
 """
 
+_model = genai.GenerativeModel(
+    model_name="gemini-2.5-flash-lite",
+    system_instruction=SYSTEM_PROMPT,
+    generation_config={
+        "temperature": 0.1,
+        "max_output_tokens": 1024,
+    },
+)
+
+
 def answer_question(osint_data: dict, question: str) -> str:
-    """Responde usando la librería nativa de Google Generative AI."""
+    """Responde usando el Chat API de Gemini con historial multi-turno nativo."""
     try:
         clean = _prune(osint_data)
-        context = json.dumps(clean, indent=2, ensure_ascii=False)
-        html_links = osint_data.get("html_links")
+        pages = osint_data.get("pages") or {}
+        context_block = _build_context_block(clean, osint_data.get("html_links", ""), pages)
         history = osint_data.get("history") or []
 
-        full_prompt = (
-            f"{SYSTEM_PROMPT}\n\n"
-            f"CONTEXTO OSINT (JSON):\n{context}"
-        )
+        # Convertir historial al formato nativo de Gemini.
+        # El contexto OSINT se inyecta una sola vez en el primer mensaje
+        # para no repetirlo en cada turno.
+        gemini_history = []
+        for i, turn in enumerate(history):
+            user_msg = turn.get("user", "")
+            if i == 0:
+                user_msg = f"{context_block}\n\nPREGUNTA: {user_msg}"
+            gemini_history.append({"role": "user", "parts": [user_msg]})
+            gemini_history.append({"role": "model", "parts": [turn.get("assistant", "")]})
 
-        if html_links:
-            full_prompt += f"\n\nCONTEXTO ENLACES HTML:\n{html_links}"
+        chat = _model.start_chat(history=gemini_history)
 
-        if history:
-            full_prompt += "\n\nCONVERSACIÓN ANTERIOR:"
-            for turn in history:
-                full_prompt += (
-                    f"\nUsuario: {turn.get('user')}\n"
-                    f"Asistente: {turn.get('assistant')}"
-                )
+        # Si no hay historial previo, incluir el contexto en este primer mensaje
+        message = f"{context_block}\n\nPREGUNTA: {question}" if not history else question
+        response = chat.send_message(message)
 
-        full_prompt += f"\n\nPREGUNTA DEL USUARIO: {question}"
+        return response.text.strip() if response.text else "Sin respuesta del modelo."
 
-        response = model.generate_content(full_prompt)
+    except Exception as exc:
+        logger.error("Error en Gemini: %s", exc)
+        return f"Error al procesar la consulta: {exc}"
 
-        if response.text:
-            return response.text.strip()
-        return "Sin respuesta del modelo."
 
-    except Exception as e:
-        logger.error(f"Error crítico en Gemini: {e}")
-        return f"Error al procesar la consulta: {str(e)}"
+def _build_context_block(clean: dict, html_links: str, pages: dict) -> str:
+    context = json.dumps(clean, indent=2, ensure_ascii=False)
+    block = f"CONTEXTO OSINT (JSON):\n{context}"
+    if html_links:
+        block += f"\n\nCONTEXTO ENLACES:\n{html_links}"
+    if pages:
+        block += "\n\nCONTENIDO DE PÁGINAS VISITADAS:"
+        for url, text in pages.items():
+            block += f"\n\n--- {url} ---\n{text}"
+    return block
+
 
 def _prune(data: dict) -> dict:
     """Elimina campos ruidosos antes de enviar al modelo."""
-    # Creamos una copia para no modificar el original
     pruned = json.loads(json.dumps(data, default=str))
+    pruned.pop("html_links", None)
+    pruned.pop("history", None)
+    pruned.pop("pages", None)  # se pasa aparte en _build_context_block
     gh = pruned.get("github")
     if isinstance(gh, dict):
         gh.pop("avatar_url", None)
