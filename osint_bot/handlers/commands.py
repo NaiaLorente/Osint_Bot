@@ -152,6 +152,7 @@ async def perform_question(update: Update, question: str) -> None:
 
         answer = answer_question(session, question)
 
+        note = ""
         # Si el LLM no encontró el dato, lanzar búsqueda dirigida y reintentar
         if _is_no_answer(answer):
             person = session.get("query", "")
@@ -162,12 +163,16 @@ async def perform_question(update: Update, question: str) -> None:
                     session.setdefault("pages", {}).update(new_pages)
                     set_session(update.effective_chat.id, session)
                     answer = answer_question(session, question)
+                    note = (
+                        "Esta información no se encontraba en los enlaces previos "
+                        "proporcionados; se ha realizado una nueva búsqueda.\n\n"
+                    )
 
         history = session.get("history") or []
         history.append({"user": question, "assistant": answer})
         session["history"] = history
         set_session(update.effective_chat.id, session)
-        await status.edit_text(answer)
+        await status.edit_text(f"{note}{answer}")
     except Exception as exc:  # noqa: BLE001
         logger.exception("Error en Q&A")
         await status.edit_text(f"Error al responder: {exc}")

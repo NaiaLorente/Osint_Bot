@@ -7,6 +7,7 @@ import html
 import logging
 
 from sources.duckduckgo import search_web as search_duckduckgo_web
+from sources.fetcher import fetch_page_text
 from sources.google_search import search_google_web
 
 logger = logging.getLogger(__name__)
@@ -17,9 +18,9 @@ async def run_full_search(query: str) -> dict:
     loop = asyncio.get_event_loop()
 
     try:
-        web = await loop.run_in_executor(None, search_google_web, query, 8)
+        web = await loop.run_in_executor(None, search_google_web, query, 10)
         if not web:
-            web = await loop.run_in_executor(None, search_duckduckgo_web, query, 8)
+            web = await loop.run_in_executor(None, search_duckduckgo_web, query, 10)
     except Exception as exc:  # noqa: BLE001
         logger.error("Error en búsqueda web: %s", exc)
         web = []
@@ -48,7 +49,7 @@ def _build_html_context(results: dict) -> str:
     web = results.get("web") or []
     if web:
         sections.append("<b>Resultados web</b>")
-        for idx, r in enumerate(web[:8], start=1):
+        for idx, r in enumerate(web[:10], start=1):
             sections.append(
                 f"{idx}. {_link(r.get('title') or r.get('url'), r.get('url'))}"
             )
@@ -65,8 +66,8 @@ def format_results(results: dict) -> str:
 
     web = results.get("web") or []
     if web:
-        parts.append("<b>Resultados web (8 primeros enlaces)</b>")
-        for idx, r in enumerate(web[:8], start=1):
+        parts.append("<b>Resultados web (10 primeros enlaces)</b>")
+        for idx, r in enumerate(web[:10], start=1):
             parts.append(
                 f"{idx}. {_link(r.get('title') or r.get('url'), r.get('url'))}"
             )
@@ -77,3 +78,53 @@ def format_results(results: dict) -> str:
 
     parts.append("<i>Usa /ask &lt;pregunta&gt; para preguntar sobre estos enlaces.</i>")
     return "\n".join(parts)
+
+
+async def fetch_top_pages(query_or_session: str | dict) -> dict[str, str]:
+    """Obtiene el texto de las páginas principales de una búsqueda web."""
+    query = query_or_session.get("query") if isinstance(query_or_session, dict) else query_or_session
+    if not isinstance(query, str):
+        query = ""
+
+    loop = asyncio.get_event_loop()
+    try:
+        results = await loop.run_in_executor(None, search_google_web, query, 5)
+        if not results:
+            results = await loop.run_in_executor(None, search_duckduckgo_web, query, 5)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Error en fetch_top_pages: %s", exc)
+        results = []
+
+    pages: dict[str, str] = {}
+    for result in results:
+        url = result.get("url")
+        if not url or url in pages:
+            continue
+        text = await loop.run_in_executor(None, fetch_page_text, url)
+        if text:
+            pages[url] = text
+    return pages
+
+
+async def targeted_search(query: str, target: str, existing_pages: dict | None = None) -> dict[str, str]:
+    """Ejecuta una búsqueda web dirigida a una pregunta o objetivo concreto."""
+    targeted_query = f"{query} {target}"
+    loop = asyncio.get_event_loop()
+    try:
+        results = await loop.run_in_executor(None, search_google_web, targeted_query, 5)
+        if not results:
+            results = await loop.run_in_executor(None, search_duckduckgo_web, targeted_query, 5)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Error en targeted_search: %s", exc)
+        return {}
+
+    pages: dict[str, str] = {}
+    existing_pages = existing_pages or {}
+    for result in results:
+        url = result.get("url")
+        if not url or url in existing_pages or url in pages:
+            continue
+        text = await loop.run_in_executor(None, fetch_page_text, url)
+        if text:
+            pages[url] = text
+    return pages

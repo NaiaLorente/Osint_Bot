@@ -21,6 +21,8 @@ Reglas estrictas:
   claramente: "No encuentro ese dato en las fuentes recopiladas."
 - No inventes datos, no deduzcas información personal sensible.
 - Menciona la fuente entre paréntesis cuando esté disponible.
+- Si la información solicitada ya está en los enlaces previos proporcionados, responde directamente sin decir que hiciste una nueva búsqueda.
+- No agregues explicaciones innecesarias ni repitas instrucciones.
 - Sé conciso. Responde en el mismo idioma que la pregunta.
 """
 
