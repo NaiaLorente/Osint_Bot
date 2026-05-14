@@ -1,147 +1,148 @@
 # Bot OSINT de Telegram
 
-Bot de Telegram que, dado un nombre o nombre de usuario, consulta **fuentes
-abiertas** (Wikipedia, GitHub, LinkedIn vía enlace, X/Twitter vía enlace,
-noticias y web general) y devuelve un informe ordenado. Además permite
-hacer preguntas en lenguaje natural sobre la persona usando la API de
-Claude como motor de Q&A sobre el contexto recopilado.
+Bot de Telegram que recibe un nombre o usuario, busca resultados web en fuentes abiertas y devuelve un informe ordenado en Telegram. También permite hacer preguntas sobre la última búsqueda usando un modelo de IA sobre el contexto de los enlaces recopilados.
 
-## Características
+## Qué hace realmente este bot
 
-- Búsquedas en paralelo en varias fuentes abiertas.
-- Fuentes: Wikipedia (API), **Wikidata (SPARQL — datos estructurados)**,
-  GitHub (API), noticias y web general (Google Search si está configurado, o DDG como fallback), enlaces a LinkedIn y X/Twitter.
-- Informe formateado (HTML) para Telegram con enlaces clicables.
-- Modo Q&A con Claude que responde **solo con la información recopilada**
-  (no inventa datos, no deduce información sensible).
-- Sesión por chat: cada chat tiene su propia persona activa.
-- Autorización opcional por lista blanca de IDs de Telegram.
+- Ejecuta una búsqueda web usando Google Custom Search API si está configurado.
+- Si no hay credenciales de Google Search, usa DuckDuckGo como fallback.
+- Devuelve los primeros enlaces relevantes ordenados.
+- Guarda el contexto de la búsqueda en la sesión del chat.
+- Permite preguntar con `/ask <pregunta>` sobre la última búsqueda.
+- Usa OpenRouter / Gemini para generar respuestas basadas únicamente en el contexto recopilado.
 
-## Arquitectura
+## Estructura del proyecto
 
-```
+\`\`\`
 osint_bot/
 ├── bot.py                 # Arranque del bot y registro de handlers
-├── config.py              # Carga de .env
-├── requirements.txt
-├── .env.example
+├── config.py              # Lectura de variables de entorno
+├── requirements.txt       # Dependencias Python necesarias
+├── .env.example           # Ejemplo de variables de entorno
 ├── handlers/
 │   ├── commands.py        # /start, /help, /search, /ask, /clear
-│   └── messages.py        # Texto libre -> /search o /ask (heurística)
+│   └── messages.py        # Texto libre -> /search o /ask
 ├── sources/
-│   ├── wikipedia.py       # Wikipedia API
-│   ├── wikidata.py        # Wikidata SPARQL (datos estructurados)
-│   ├── github.py          # GitHub REST API
-│   └── duckduckgo.py      # DDG: web, LinkedIn, X/Twitter, noticias
+│   ├── duckduckgo.py      # Búsqueda web y enlaces públicos
+│   ├── google_search.py   # Google Custom Search (opcional)
+│   └── fetcher.py         # Descarga y limpia texto de páginas web
 ├── services/
-│   ├── osint.py           # Orquesta y formatea
-│   └── llm.py             # Cliente Anthropic (Claude)
+│   ├── osint.py           # Orquesta búsquedas y formatea resultados
+│   └── llm.py             # Cliente de OpenRouter / Gemini para Q&A
 └── storage/
     └── sessions.py        # Estado en memoria por chat
-```
+\`\`\`
 
 ## Instalación
 
-Requiere Python 3.10+.
+Requisitos:
+- Python 3.10+
+- Git
+- Docker (opcional)
 
-```bash
-git clone <este-proyecto>
+\`\`\`bash
+git clone <repositorio>
 cd osint_bot
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+.venv\Scripts\activate      # Windows
 pip install -r requirements.txt
-cp .env.example .env
-# edita .env y rellena TELEGRAM_TOKEN y ANTHROPIC_API_KEY
+copy .env.example .env
+\`\`\`
+
+Edita `.env` y completa las variables necesarias antes de arrancar el bot.
+
+### Ejecutar localmente
+
+\`\`\`bash
 python bot.py
-```
+\`\`\`
 
-### Desplegar con Docker (recomendado para VPS)
+### Ejecutar con Docker
 
-```bash
-cp .env.example .env && nano .env   # rellena las credenciales
+\`\`\`bash
+copy .env.example .env
 docker compose up -d --build
-docker compose logs -f               # ver logs en vivo
-```
+\`\`\`
 
-El contenedor se reinicia solo si falla (`restart: unless-stopped`),
-tiene el log rotado a 10 MB × 3 ficheros y corre como usuario no root.
+### Probar los tests
 
-### Ejecutar los tests
-
-```bash
+\`\`\`bash
 pip install pytest
-TELEGRAM_TOKEN=dummy ANTHROPIC_API_KEY=dummy pytest tests/ -v
-```
+TELEGRAM_TOKEN=dummy OPENROUTER_API_KEY=dummy pytest tests/ -v
+\`\`\`
 
-Los tests incluidos no requieren red ni credenciales: validan las
-funciones puras (heurística de preguntas, troceado para Telegram,
-escapado de HTML y formateo de cada fuente).
+## Variables de configuración (`.env`)
 
-### Obtener credenciales
+- `TELEGRAM_TOKEN` — token del bot de Telegram.
+- `OPENROUTER_API_KEY` — clave de OpenRouter para el modelo Gemini.
+- `GITHUB_TOKEN` — token de GitHub opcional para mejorar el rate limit si se usa GitHub.
+- `GOOGLE_SEARCH_API_KEY` — clave de Google Search API opcional.
+- `GOOGLE_SEARCH_ENGINE_ID` — ID de motor de búsqueda de Google opcional.
+- `LLM_MODEL` — modelo Gemini a usar (por defecto `gemini-2.5-flash-lite`).
+- `WIKIPEDIA_LANG` — idioma de Wikipedia si se utiliza la fuente de Wikipedia (no está integrada activamente en este momento).
+- `ALLOWED_USER_IDS` — IDs de Telegram autorizados, separados por comas.
 
-- **Telegram:** habla con [@BotFather](https://t.me/BotFather) y envía
-  `/newbot`. Te dará el token.
-- **Anthropic:** crea una key en <https://console.anthropic.com/>.
-- **GitHub** (opcional, recomendado): un token *fine-grained* sin permisos
-  eleva el rate limit de 60 a 5 000 peticiones/hora.
-- **Google Search** (opcional, para resultados idénticos a Google): sigue
-  las instrucciones en `GOOGLE_SEARCH_SETUP.md`.
-- **Tu ID de Telegram** (opcional, para restringir acceso): habla con
-  [@userinfobot](https://t.me/userinfobot).
+> Nota: el flujo actual usa principalmente Google Search/DuckDuckGo y OpenRouter/Gemini. Las funciones de Wikipedia, GitHub y Wikidata no se encuentran integradas en el flujo activo del bot.
 
-## Uso
+## Uso en Telegram
 
-Una vez el bot esté corriendo, desde Telegram:
+Comandos principales:
 
-| Comando                    | Descripción                                         |
-|---------------------------|-----------------------------------------------------|
-| `/start`, `/help`         | Muestra la ayuda.                                   |
-| `/search Ada Lovelace`    | Busca en todas las fuentes y muestra informe.       |
-| `/search torvalds`        | Si coincide, trae el perfil de GitHub.              |
-| `/ask ¿Dónde estudió?`    | Pregunta sobre la última búsqueda de este chat.     |
-| `/clear`                  | Borra la sesión de este chat.                       |
+| Comando                     | Descripción                                         |
+|----------------------------|-----------------------------------------------------|
+| `/start`, `/help`          | Muestra ayuda básica.                                |
+| `/search <nombre o usuario>` | Busca resultados web y muestra un informe.         |
+| `/ask <pregunta>`          | Pregunta sobre la última búsqueda en este chat.      |
+| `/clear`                   | Borra la sesión del chat actual.                     |
 
-También puedes escribir directamente sin comando:
-- `Linus Torvalds` → hace una búsqueda.
-- `¿a qué se dedica?` (con sesión activa) → responde sobre esa persona.
+### Ejemplos
 
-## Extender el bot
+- `/search Ada Lovelace`
+- `/search torvalds`
+- `/ask ¿Dónde estudió?`
+- `/ask ¿Cuál es su profesión?`
 
-Añadir una nueva fuente es sencillo:
+### Mensajes libres
 
-1. Crea `sources/mi_fuente.py` con una función `def search_mi_fuente(q) -> dict|list`.
-2. Regístrala en `services/osint.py` dentro de `run_full_search` y
-   añade su bloque en `format_results`.
+- Si envías un nombre o usuario sin comando, el bot intentará hacer una búsqueda.
+- Si escribes una pregunta y hay sesión activa, el bot lo tratará como `/ask`.
 
-Ideas de fuentes adicionales que son **compatibles con OSINT público y
-sus ToS**: `arXiv`, `Crossref` para publicaciones, `Mastodon` API,
-`Wikidata` SPARQL, dominios `/humans.txt`, Gravatar (email hash), etc.
+## Qué entregar
 
-## Consideraciones legales y éticas (importante)
+Para que el profesor pueda evaluar fácilmente tu trabajo, entrega:
 
-Aunque los datos sean públicos, **el tratamiento automatizado de información
-sobre personas físicas identificables entra dentro del RGPD (UE) y la
-LOPDGDD (España)**. Antes de usar este bot sobre terceros:
+1. El repositorio completo con todo el código.
+2. El archivo `.env.example` sin credenciales reales.
+3. `README.md` con pasos claros de instalación y uso.
+4. Un video breve mostrando:
+   - configuración de `.env`
+   - arranque del bot
+   - uso de `/start`, `/search`, `/ask` y `/clear`
+   - resultados reales en Telegram
 
-- Asegúrate de tener una base jurídica válida para el tratamiento (interés
-  legítimo documentado, consentimiento, obligación legal…).
-- No crees perfiles que crucen datos sensibles (salud, ideología,
-  orientación, religión).
-- Respeta los ToS de cada plataforma. Este bot **no scrapea LinkedIn ni X**;
-  solo resuelve enlaces a perfiles públicos vía un buscador.
-- No lo uses para acosar, doxear o vigilar a nadie.
-- Ofrece mecanismos de borrado (`/clear`) y no persistas datos más tiempo
-  del necesario. Por defecto, este bot solo guarda la sesión **en memoria**.
+## Cómo hacer el video
 
-## Limitaciones conocidas
+Orden sugerido:
+1. Explica el propósito del bot.
+2. Muestra `.env.example` y menciona las credenciales necesarias.
+3. Arranca el bot localmente o con Docker.
+4. En Telegram, envía `/start` y revisa la ayuda.
+5. Haz una búsqueda con `/search`.
+6. Haz una pregunta con `/ask` basada en esa búsqueda.
+7. Muestra `/clear` y explica que borra la sesión.
 
-- LinkedIn y X/Twitter solo se resuelven como enlaces públicos; no se
-  extrae el contenido del perfil.
-- El buscador DDG a veces aplica rate limits; en ese caso, esa sección
-  aparecerá vacía y el resto del informe seguirá funcionando.
-- GitHub se consulta como *username exacto*; si pasas un nombre completo
-  con espacios, esa fuente devolverá vacío (y es lo correcto).
+## Consideraciones éticas
+
+- Usa solo información pública.
+- Respeta la privacidad y las leyes (RGPD/LOPDGDD).
+- No hagas búsquedas de personas con fines de acoso o doxxing.
+
+## Limitaciones actuales
+
+- El bot no extrae perfiles completos de LinkedIn ni X/Twitter; solo muestra enlaces públicos.
+- Sin Google Search configurado, usa DuckDuckGo.
+- El Q&A solo responde con información disponible en los enlaces y páginas descargadas.
 
 ## Licencia
 
-MIT. Úsalo bajo tu responsabilidad.
+MIT.

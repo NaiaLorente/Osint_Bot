@@ -1,7 +1,7 @@
 """Tests que NO requieren red ni credenciales.
 
 Ejecutar:
-    TELEGRAM_TOKEN=dummy ANTHROPIC_API_KEY=dummy pytest tests/
+    TELEGRAM_TOKEN=dummy OPENROUTER_API_KEY=dummy pytest tests/
 """
 from handlers.commands import _chunk_text
 from handlers.messages import _looks_like_question
