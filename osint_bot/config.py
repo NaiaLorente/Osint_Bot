@@ -10,9 +10,6 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
 GOOGLE_SEARCH_API_KEY = os.getenv("GOOGLE_SEARCH_API_KEY", "").strip()
 GOOGLE_SEARCH_ENGINE_ID = os.getenv("GOOGLE_SEARCH_ENGINE_ID", "").strip()
 
-# Modelo de OpenRouter
-CLAUDE_MODEL = os.getenv("LLM_MODEL", "meta-llama/llama-3.1-8b-instruct").strip()
-
 WIKIPEDIA_LANG = os.getenv("WIKIPEDIA_LANG", "es").strip()
 
 _raw_allowed = os.getenv("ALLOWED_USER_IDS", "").strip()

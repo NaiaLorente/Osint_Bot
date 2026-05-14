@@ -8,8 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 logger = logging.getLogger(__name__)
-
-GEMINI_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
+GEMINI_API_KEY = os.getenv("OPENROUTER_API_KEY", "AIzaSyAo3ntFucpjG_9rxXZBM4HehXojB9JXyBg").strip()
 genai.configure(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT = """Eres un asistente de OSINT. Tu tarea es responder preguntas \
@@ -27,7 +26,7 @@ Reglas estrictas:
 """
 
 _model = genai.GenerativeModel(
-    model_name="gemini-2.5-flash-lite",
+    model_name="gemini-2.5-flash",
     system_instruction=SYSTEM_PROMPT,
     generation_config={
         "temperature": 0.1,
