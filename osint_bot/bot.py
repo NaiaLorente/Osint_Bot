@@ -1,7 +1,5 @@
 """Bot de Telegram para OSINT sobre información pública."""
 import logging
-import signal, sys
-
 
 from telegram import Update
 from telegram.ext import (
@@ -45,16 +43,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
-
-
-
-def shutdown_handler(signum, frame):
-    logger.info("🛑 Cerrando bot...")
-    app.stop()
-    sys.exit(0)
-
-if __name__ == "__main__":
-    signal.signal(signal.SIGINT, shutdown_handler)
-    signal.signal(signal.SIGTERM, shutdown_handler)
     main()

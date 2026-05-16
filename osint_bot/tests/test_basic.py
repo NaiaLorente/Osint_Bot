@@ -42,12 +42,6 @@ def test_format_results_with_empty_sources():
     out = format_results(
         {
             "query": "X",
-            "wikipedia": None,
-            "wikidata": None,
-            "github": None,
-            "linkedin": [],
-            "twitter": [],
-            "news": [],
             "web": [],
         }
     )
@@ -59,12 +53,6 @@ def test_format_results_escapes_html():
     out = format_results(
         {
             "query": "<script>",
-            "wikipedia": None,
-            "wikidata": None,
-            "github": None,
-            "linkedin": [],
-            "twitter": [],
-            "news": [],
             "web": [],
         }
     )
@@ -80,12 +68,6 @@ def test_format_results_shows_top_web_results():
     out = format_results(
         {
             "query": "Prueba",
-            "wikipedia": None,
-            "wikidata": None,
-            "github": None,
-            "linkedin": [],
-            "twitter": [],
-            "news": [],
             "web": web,
         }
     )

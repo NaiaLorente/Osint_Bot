@@ -8,8 +8,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 logger = logging.getLogger(__name__)
-GEMINI_API_KEY = os.getenv("OPENROUTER_API_KEY", "AIzaSyAo3ntFucpjG_9rxXZBM4HehXojB9JXyBg").strip()
-genai.configure(api_key=GEMINI_API_KEY)
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
+if not OPENROUTER_API_KEY:
+    raise RuntimeError("Falta OPENROUTER_API_KEY en el entorno (.env)")
+genai.configure(api_key=OPENROUTER_API_KEY)
 
 SYSTEM_PROMPT = """Eres un asistente de OSINT. Tu tarea es responder preguntas \
 sobre una persona basándote ÚNICAMENTE en la información pública recopilada \
