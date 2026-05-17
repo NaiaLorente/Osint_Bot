@@ -1,76 +1,140 @@
-"""Obtención de datos públicos de un usuario de GitHub."""
+"""Integración con la API pública de GitHub.
+
+Usa la REST API v3, que es pública y gratuita. Sin token: 60 req/h.
+Con GITHUB_TOKEN (en .env) sube a 5000 req/h. Solo lee datos PÚBLICOS:
+perfil declarado por el usuario, repos públicos, lenguajes, fechas de actividad.
+
+Nada de aquí cruza login walls — son datos que el usuario expone explícitamente.
+
+Archivo destinado a: sources/github.py
+"""
 import logging
+import os
+import re
+from typing import Optional
 
 import requests
 
-from config import GITHUB_TOKEN
-
 logger = logging.getLogger(__name__)
 
-API = "https://api.github.com"
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
+
+_HEADERS = {
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "OSINT-Bot/1.0",
+}
+if GITHUB_TOKEN:
+    _HEADERS["Authorization"] = f"Bearer {GITHUB_TOKEN}"
+
+# Captura usuarios y repos de URLs tipo github.com/usuario o github.com/usuario/repo
+_GH_URL_RE = re.compile(
+    r"github\.com/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})?)(?:/([A-Za-z0-9._-]+))?",
+    re.IGNORECASE,
+)
+
+# Subrutas que NO son usuarios
+_NOT_A_USER = {
+    "orgs", "topics", "search", "marketplace", "explore", "events",
+    "trending", "collections", "settings", "notifications", "pulls",
+    "issues", "about", "pricing", "features", "security", "enterprise",
+    "login", "join", "logout", "sponsors", "readme", "contact",
+}
 
 
-def _headers() -> dict:
-    h = {"Accept": "application/vnd.github+json", "User-Agent": "OSINT-Bot"}
-    if GITHUB_TOKEN:
-        h["Authorization"] = f"Bearer {GITHUB_TOKEN}"
-    return h
+def extract_github_users(urls: list[str]) -> list[str]:
+    """Extrae nombres de usuario únicos a partir de URLs."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for url in urls:
+        m = _GH_URL_RE.search(url or "")
+        if not m:
+            continue
+        user = m.group(1)
+        if not user or user.lower() in _NOT_A_USER:
+            continue
+        if user not in seen:
+            seen.add(user)
+            out.append(user)
+    return out
 
 
-def search_github(username: str) -> dict | None:
-    """Si `username` parece un handle de GitHub, devuelve su perfil público."""
-    # Evita llamar a la API con frases con espacios.
-    if not username or " " in username or "/" in username:
-        return None
-
+def fetch_user(username: str, timeout: int = 10) -> Optional[dict]:
+    """Perfil público de un usuario. Devuelve None si no existe / hay error."""
     try:
-        r = requests.get(f"{API}/users/{username}", headers=_headers(), timeout=10)
-        if r.status_code != 200:
-            return None
-        data = r.json()
-
-        # Top repos por estrellas.
-        repos_r = requests.get(
-            f"{API}/users/{username}/repos",
-            params={"sort": "stars", "per_page": 5, "type": "owner"},
-            headers=_headers(),
-            timeout=10,
+        resp = requests.get(
+            f"https://api.github.com/users/{username}",
+            headers=_HEADERS, timeout=timeout,
         )
-        top_repos = []
-        if repos_r.status_code == 200:
-            repos = sorted(
-                repos_r.json(),
-                key=lambda x: x.get("stargazers_count", 0),
-                reverse=True,
-            )
-            top_repos = [
-                {
-                    "name": repo["name"],
-                    "stars": repo["stargazers_count"],
-                    "description": repo.get("description"),
-                    "url": repo["html_url"],
-                    "language": repo.get("language"),
-                }
-                for repo in repos[:5]
-            ]
-
-        return {
-            "login": data.get("login"),
-            "name": data.get("name"),
-            "bio": data.get("bio"),
-            "company": data.get("company"),
-            "location": data.get("location"),
-            "email": data.get("email"),
-            "blog": data.get("blog"),
-            "twitter_username": data.get("twitter_username"),
-            "public_repos": data.get("public_repos"),
-            "followers": data.get("followers"),
-            "following": data.get("following"),
-            "created_at": data.get("created_at"),
-            "url": data.get("html_url"),
-            "avatar_url": data.get("avatar_url"),
-            "top_repos": top_repos,
-        }
     except Exception as exc:  # noqa: BLE001
-        logger.error("Error en GitHub: %s", exc)
+        logger.warning("Error en GitHub user %s: %s", username, exc)
         return None
+    if resp.status_code != 200:
+        return None
+    d = resp.json()
+    return {
+        "login": d.get("login"),
+        "name": d.get("name"),
+        "bio": d.get("bio"),
+        "company": d.get("company"),
+        "location": d.get("location"),
+        "blog": d.get("blog"),
+        "email": d.get("email"),                       # raro pero a veces sí
+        "twitter_username": d.get("twitter_username"),
+        "public_repos": d.get("public_repos"),
+        "public_gists": d.get("public_gists"),
+        "followers": d.get("followers"),
+        "following": d.get("following"),
+        "created_at": d.get("created_at"),
+        "updated_at": d.get("updated_at"),
+        "html_url": d.get("html_url"),
+        "hireable": d.get("hireable"),
+    }
+
+
+def fetch_user_repos(username: str, max_repos: int = 10, timeout: int = 10) -> list[dict]:
+    """Repos públicos ordenados por última actualización (señal de actividad)."""
+    try:
+        resp = requests.get(
+            f"https://api.github.com/users/{username}/repos",
+            headers=_HEADERS,
+            params={"sort": "updated", "per_page": max_repos, "type": "owner"},
+            timeout=timeout,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Error en repos de %s: %s", username, exc)
+        return []
+    if resp.status_code != 200:
+        return []
+    out = []
+    for r in resp.json():
+        out.append({
+            "name": r.get("name"),
+            "description": r.get("description"),
+            "language": r.get("language"),
+            "stars": r.get("stargazers_count"),
+            "forks": r.get("forks_count"),
+            "created_at": r.get("created_at"),
+            "updated_at": r.get("updated_at"),
+            "pushed_at": r.get("pushed_at"),
+            "html_url": r.get("html_url"),
+            "topics": r.get("topics") or [],
+            "is_fork": r.get("fork"),
+            "archived": r.get("archived"),
+        })
+    return out
+
+
+def gather_github_info(urls: list[str], max_users: int = 3) -> dict:
+    """Pipeline: de una lista de URLs saca usuarios y trae perfil + repos."""
+    users = extract_github_users(urls)
+    info: dict = {}
+    for user in users[:max_users]:
+        profile = fetch_user(user)
+        if not profile:
+            continue
+        info[user] = {
+            "profile": profile,
+            "repos": fetch_user_repos(user, max_repos=10),
+        }
+    return info

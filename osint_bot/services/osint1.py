@@ -1,13 +1,16 @@
-"""Orquestador OSINT.
+"""Orquestador OSINT: búsquedas en paralelo, formato, y búsqueda profunda por pregunta.
 
-- run_full_search(query): /search. Búsqueda multivariante web + Wikipedia +
-  Wikidata + Webmii + BOE/BORME, todo en paralelo.
+Funciones principales:
+- run_full_search(query): para /search. Búsqueda multivariante (nombre + redes).
 - fetch_top_pages(session): descarga texto de las páginas top de /search.
-- targeted_search(person, question): fallback ligero (legacy, rara vez usado).
-- deep_question_search(person, question): búsqueda exhaustiva orientada a la
-  pregunta concreta — genera 4-7 queries por categoría OSINT y descarga
-  páginas nuevas relevantes.
-- question_signature(question): firma de la pregunta para cachear deep search.
+- targeted_search(person, question): fallback ligero si tras el LLM seguimos sin
+  respuesta (legacy; con deep_question_search activo rara vez se usa).
+- deep_question_search(person, question): NUEVA. Búsqueda exhaustiva orientada
+  a la pregunta concreta. Genera 4-6 queries derivadas de la categoría de
+  pregunta (edad, trabajo, estudios, familia, lugar, redes, aspecto, logros…),
+  las ejecuta en paralelo, reordena por relevancia y descarga páginas nuevas.
+- question_signature(question): firma simple para cachear búsquedas profundas
+  por categoría (si ya buscamos "edad", no volvemos a buscar "edad" en la sesión).
 """
 
 import asyncio
@@ -15,13 +18,9 @@ import html
 import logging
 import re
 
-from sources.boe import search_boe
 from sources.duckduckgo import search_web as search_duckduckgo_web
 from sources.fetcher import fetch_page_text
 from sources.google_search import search_google_web
-from sources.webmii import search_webmii
-from sources.wikidata import search_wikidata
-from sources.wikipedia import search_wikipedia
 
 logger = logging.getLogger(__name__)
 
@@ -103,19 +102,13 @@ async def _search_one(loop, query: str, n: int = 5) -> list[dict]:
         return []
 
 
-def _safe(value, default):
-    """Sustituye excepciones por el valor por defecto (para asyncio.gather)."""
-    return value if not isinstance(value, Exception) else default
-
-
-# ──────────────── Búsqueda inicial multivariante + fuentes ricas ────────────────
+# ──────────────────────── Búsqueda inicial multivariante ────────────────────────
 
 async def run_full_search(query: str) -> dict:
-    """Búsqueda web multivariante + Wikipedia + Wikidata + Webmii + BOE, en paralelo."""
     loop = asyncio.get_event_loop()
     quoted = _quote(query)
 
-    web_variants: list[tuple[str, int]] = [
+    variants: list[tuple[str, int]] = [
         (quoted, 7),
         (f"{quoted} site:linkedin.com", 3),
         (f"{quoted} site:instagram.com", 3),
@@ -124,28 +117,13 @@ async def run_full_search(query: str) -> dict:
         (f"{quoted} (noticias OR entrevista OR perfil)", 3),
     ]
 
-    web_tasks = [_search_one(loop, q, n) for q, n in web_variants]
-    structured_tasks = [
-        loop.run_in_executor(None, search_wikipedia, query),
-        loop.run_in_executor(None, search_wikidata, query),
-        loop.run_in_executor(None, search_webmii, query),
-        loop.run_in_executor(None, search_boe, query, 3),
-    ]
-
-    n_web = len(web_tasks)
-    all_results = await asyncio.gather(
-        *web_tasks, *structured_tasks, return_exceptions=True
+    all_batches = await asyncio.gather(
+        *[_search_one(loop, q, n) for q, n in variants]
     )
-    web_batches = [_safe(b, []) for b in all_results[:n_web]]
-    wikipedia_data = _safe(all_results[n_web], None)
-    wikidata_data = _safe(all_results[n_web + 1], None)
-    webmii_data = _safe(all_results[n_web + 2], []) or []
-    boe_data = _safe(all_results[n_web + 3], []) or []
 
-    # Merge web preservando orden, deduplicando
     seen: set[str] = set()
     merged: list[dict] = []
-    for batch in web_batches:
+    for batch in all_batches:
         for r in batch:
             url = r.get("url")
             if url and url not in seen:
@@ -164,10 +142,6 @@ async def run_full_search(query: str) -> dict:
         "web": ranked[:10],
         "history": [],
         "full_name_matched": full_match,
-        "wikipedia": wikipedia_data,
-        "wikidata": wikidata_data,
-        "webmii": webmii_data,
-        "boe": boe_data,
     }
     results["html_links"] = _build_html_context(results)
     return results
@@ -206,57 +180,10 @@ def format_results(results: dict) -> str:
     if results.get("full_name_matched") is False:
         parts.append(
             "⚠️ <i>Ningún resultado contiene el nombre completo. "
-            "Mostrando lo más cercano.</i>"
+            "Mostrando lo más cercano; la información puede ser sobre otras "
+            "personas con apellidos similares.</i>"
         )
         parts.append("")
-
-    # Wikidata destacado (estructurado, alto valor)
-    wd = results.get("wikidata")
-    if wd:
-        parts.append(f"📊 <b>Wikidata:</b> {_link(wd.get('label'), wd.get('wikidata_url'))}")
-        bits = []
-        if wd.get("birth"):
-            bits.append(f"nacido {wd['birth']}")
-        if wd.get("death"):
-            bits.append(f"† {wd['death']}")
-        if wd.get("occupations"):
-            bits.append("ocupación: " + ", ".join(wd["occupations"][:3]))
-        if wd.get("countries"):
-            bits.append("nac.: " + ", ".join(wd["countries"][:2]))
-        if wd.get("employers"):
-            bits.append("empleador: " + ", ".join(wd["employers"][:2]))
-        if bits:
-            parts.append(f"   <i>{_esc(' · '.join(bits))}</i>")
-        parts.append("")
-
-    # Wikipedia
-    wp = results.get("wikipedia")
-    if wp:
-        parts.append(f"📖 <b>Wikipedia:</b> {_link(wp.get('title'), wp.get('url'))}")
-        parts.append("")
-
-    # BOE/BORME
-    boe = results.get("boe") or []
-    if boe:
-        parts.append("⚖️ <b>BOE / BORME</b>")
-        for b in boe[:4]:
-            label = f"[{b.get('source','')}] {b.get('title','')}".strip()
-            date = b.get("date", "")
-            line = f"• {_link(label, b.get('url'))}"
-            if date:
-                line += f" <i>({_esc(date)})</i>"
-            parts.append(line)
-        parts.append("")
-
-    # Webmii
-    webmii = results.get("webmii") or []
-    if webmii:
-        parts.append("🌐 <b>Webmii (presencia web agregada)</b>")
-        for w in webmii[:4]:
-            parts.append(f"• {_link(w.get('title'), w.get('url'))}")
-        parts.append("")
-
-    # Web
     web = results.get("web") or []
     if web:
         parts.append("<b>Resultados web (10 primeros enlaces)</b>")
@@ -268,7 +195,6 @@ def format_results(results: dict) -> str:
     else:
         parts.append("<b>Resultados web:</b> sin resultados")
         parts.append("")
-
     parts.append("<i>Usa /ask &lt;pregunta&gt; para preguntar sobre estos enlaces.</i>")
     return "\n".join(parts)
 
@@ -337,6 +263,8 @@ async def targeted_search(
 
 # ════════════════════════ Búsqueda profunda por pregunta ═══════════════════════
 
+# Cada categoría: (lista de palabras que disparan la categoría,
+#                  lista de plantillas de query — usan {quoted} para el nombre).
 _QUESTION_PATTERNS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "edad": (
         ("edad", "años", "viejo", "vieja", "joven", "mayor",
@@ -432,6 +360,11 @@ _QUESTION_PATTERNS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 
 
 def question_signature(question: str) -> str:
+    """Firma de la pregunta basada en categorías que dispara. Para cachear búsquedas.
+
+    Dos preguntas con la misma firma (p.ej. '¿qué edad tiene?' y '¿cuándo nació?')
+    activan las mismas búsquedas profundas, así que se cachean juntas.
+    """
     q = question.lower()
     matches = [cat for cat, (triggers, _) in _QUESTION_PATTERNS.items()
                if any(t in q for t in triggers)]
@@ -439,6 +372,7 @@ def question_signature(question: str) -> str:
 
 
 def _generate_question_queries(person: str, question: str) -> list[str]:
+    """4-6 consultas optimizadas para una pregunta concreta sobre la persona."""
     quoted = _quote(person)
     q_lower = question.lower()
     queries: list[str] = []
@@ -450,14 +384,17 @@ def _generate_question_queries(person: str, question: str) -> list[str]:
                 queries.append(tmpl.format(quoted=quoted))
             matched = True
 
+    # Variante con keywords de la pregunta (siempre útil)
     keywords = _extract_keywords(question)
     if keywords:
         queries.append(f"{quoted} {keywords}")
 
     if not matched:
+        # Pregunta no clasificada: variantes generales amplias
         queries.append(f"{quoted} biografía OR perfil")
         queries.append(f"{quoted} entrevista OR noticias")
 
+    # Dedupe preservando orden
     seen: set[str] = set()
     out: list[str] = []
     for q in queries:
@@ -465,7 +402,7 @@ def _generate_question_queries(person: str, question: str) -> list[str]:
         if q and q not in seen:
             seen.add(q)
             out.append(q)
-    return out[:7]
+    return out[:7]  # tope: 7 consultas en paralelo
 
 
 async def deep_question_search(
@@ -474,6 +411,15 @@ async def deep_question_search(
     existing_pages: dict | None = None,
     max_new_pages: int = 8,
 ) -> dict[str, str]:
+    """Búsqueda exhaustiva orientada a una pregunta sobre la persona.
+
+    Lanza N queries específicas en paralelo, ranquea los resultados nuevos por
+    relevancia (peso doble al nombre, peso simple a los términos de la pregunta)
+    y descarga las top N páginas nuevas con concurrencia limitada.
+
+    Devuelve {url: texto} solo con las páginas nuevas (no presentes en
+    existing_pages). Si no hay nada nuevo o útil, devuelve dict vacío.
+    """
     existing_pages = existing_pages or {}
     queries = _generate_question_queries(person, question)
     if not queries:
@@ -484,6 +430,7 @@ async def deep_question_search(
     loop = asyncio.get_event_loop()
     batches = await asyncio.gather(*[_search_one(loop, q, 5) for q in queries])
 
+    # Merge + dedupe contra páginas ya cacheadas
     seen_urls: set[str] = set(existing_pages.keys())
     merged: list[dict] = []
     for batch in batches:
@@ -496,6 +443,7 @@ async def deep_question_search(
     if not merged:
         return {}
 
+    # Ranking: nombre pesa el doble que los términos de la pregunta
     person_terms = _tokenize(person)
     question_terms = [t for t in _tokenize(question) if t not in _STOPWORDS]
 
@@ -511,6 +459,7 @@ async def deep_question_search(
 
     ranked = sorted(merged, key=_score, reverse=True)
 
+    # Descarga con concurrency limitada
     sem = asyncio.Semaphore(4)
 
     async def _fetch(url: str) -> tuple[str, str | None]:
