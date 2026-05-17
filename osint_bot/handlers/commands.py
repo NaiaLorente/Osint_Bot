@@ -15,7 +15,7 @@ import html
 import logging
 import re
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
 
@@ -107,7 +107,7 @@ def _authorized(update: Update) -> bool:
 
 
 async def _deny(update: Update) -> None:
-    await update.message.reply_text("No estás autorizado a usar este bot.")
+    await update.effective_message.reply_text("No estás autorizado a usar este bot.")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -133,8 +133,9 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def perform_search(update: Update, query: str) -> None:
-    await update.message.reply_chat_action(ChatAction.TYPING)
-    status = await update.message.reply_text(
+    msg = update.effective_message
+    await msg.reply_chat_action(ChatAction.TYPING)
+    status = await msg.reply_text(
         f"Buscando <b>{html.escape(query)}</b>…", parse_mode=ParseMode.HTML
     )
     try:
@@ -142,7 +143,7 @@ async def perform_search(update: Update, query: str) -> None:
         set_session(update.effective_chat.id, results)
         body = format_results(results)
         for chunk in _chunk_text(body, 3800):
-            await update.message.reply_text(
+            await msg.reply_text(
                 chunk, parse_mode=ParseMode.HTML, disable_web_page_preview=True,
             )
         await status.delete()
@@ -150,12 +151,17 @@ async def perform_search(update: Update, query: str) -> None:
             session = results
             session["disambiguation_pending"] = True
             set_session(update.effective_chat.id, session)
-            await update.message.reply_text(
+            await msg.reply_text(
                 "⚠️ No he encontrado resultados que coincidan exactamente con ese nombre.\n\n"
                 "¿Puedes añadir algún detalle para afinar la búsqueda?\n"
                 "<i>Ejemplos: ciudad, profesión, país, empresa, año aproximado…</i>\n\n"
                 "Escríbelo directamente y buscaré de nuevo.",
                 parse_mode=ParseMode.HTML,
+            )
+        else:
+            await msg.reply_text(
+                "Acciones rápidas:",
+                reply_markup=_build_quick_keyboard(results),
             )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Error en búsqueda")
@@ -323,13 +329,13 @@ async def _proactive_deep_search(chat_id: int, session: dict, question: str, sta
 async def perform_question(update: Update, question: str) -> None:
     session = get_session(update.effective_chat.id)
     if not session:
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             "No hay datos en sesión. Primero haz una búsqueda con /search <nombre>."
         )
         return
 
-    await update.message.reply_chat_action(ChatAction.TYPING)
-    status = await update.message.reply_text("Leyendo páginas y pensando…")
+    await update.effective_message.reply_chat_action(ChatAction.TYPING)
+    status = await update.effective_message.reply_text("Leyendo páginas y pensando…")
     try:
         loop = asyncio.get_event_loop()
         chat_id = update.effective_chat.id
@@ -429,19 +435,19 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     session = get_session(update.effective_chat.id)
     if not session:
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             "No hay sesión activa. Primero haz una búsqueda con /search <nombre>."
         )
         return
     text = _build_report(session)
     if len(text) <= 4096:
-        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+        await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
     else:
         import io
         raw = _strip_html(text)
         file = io.BytesIO(raw.encode("utf-8"))
         file.name = f"osint_{html.escape(session.get('query', 'report'))}.txt"
-        await update.message.reply_document(document=file, filename=file.name)
+        await update.effective_message.reply_document(document=file, filename=file.name)
 
 
 def _strip_html(text: str) -> str:
@@ -500,6 +506,47 @@ def _build_report(session: dict) -> str:
             parts.append("")
 
     return "\n".join(parts)
+
+
+def _build_quick_keyboard(results: dict) -> InlineKeyboardMarkup:
+    web = results.get("web") or []
+    has_github = any("github.com" in (r.get("url") or "") for r in web)
+    rows = [
+        [
+            InlineKeyboardButton("¿Quién es?", callback_data="ask:¿Quién es esta persona?"),
+            InlineKeyboardButton("¿Dónde trabaja?", callback_data="ask:¿Dónde trabaja actualmente?"),
+        ],
+        [
+            InlineKeyboardButton("¿Qué edad tiene?", callback_data="ask:¿Qué edad tiene aproximadamente?"),
+            InlineKeyboardButton("¿Redes sociales?", callback_data="ask:¿Qué redes sociales tiene?"),
+        ],
+    ]
+    if has_github:
+        rows.append([
+            InlineKeyboardButton(
+                "💻 Proyectos en GitHub",
+                callback_data="ask:¿Qué proyectos tiene en GitHub?",
+            ),
+        ])
+    rows.append([InlineKeyboardButton("📄 Exportar informe", callback_data="report")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    if not _authorized(update):
+        await query.message.reply_text("No estás autorizado a usar este bot.")
+        return
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:  # noqa: BLE001
+        pass
+    data = query.data or ""
+    if data.startswith("ask:"):
+        await perform_question(update, data[4:])
+    elif data == "report":
+        await report_command(update, context)
 
 
 def _chunk_text(text: str, size: int) -> list[str]:
