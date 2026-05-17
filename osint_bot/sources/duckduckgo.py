@@ -1,17 +1,27 @@
-"""Búsqueda vía DuckDuckGo.
+"""Búsqueda vía DuckDuckGo con caché.
 
 Se usa para búsquedas web generales y para *resolver enlaces* a perfiles
 sociales (LinkedIn, X/Twitter) sin scrapear esos sitios directamente,
 lo cual respeta sus términos de uso.
+
+Con caché para evitar repetir búsquedas idénticas.
 """
 import logging
 
 from ddgs import DDGS
 
+from utils.rate_limiter import SEARCH_CACHE
+
 logger = logging.getLogger(__name__)
 
 
 def _search(query: str, max_results: int = 5) -> list[dict]:
+    # Intenta obtener del caché
+    cached = SEARCH_CACHE.get(query, "duckduckgo")
+    if cached is not None:
+        logger.debug(f"DuckDuckGo (caché): {query}")
+        return cached[:max_results]
+
     try:
         with DDGS() as ddgs:
             raw = list(ddgs.text(query, max_results=max_results, region="us-en"))
@@ -28,6 +38,9 @@ def _search(query: str, max_results: int = 5) -> list[dict]:
                 "snippet": r.get("body"),
             }
         )
+    
+    # Cachea el resultado
+    SEARCH_CACHE.set(query, "duckduckgo", results)
     return results
 
 

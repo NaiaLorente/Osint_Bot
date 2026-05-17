@@ -11,6 +11,8 @@ Bloques del contexto pasados al LLM (en este orden):
   8. GITHUB — perfiles y repos públicos
   9. CONTENIDO DE PÁGINAS VISITADAS — texto extraído
   10. DESCRIPCIONES DE IMÁGENES — análisis de visión sobre fotos públicas
+
+Con soporte de caché de respuestas (24h).
 """
 import json
 import logging
@@ -20,6 +22,7 @@ import time
 import google.generativeai as genai
 
 from config import GEMINI_API_KEY, LLM_MODEL_NAME
+from utils.rate_limiter import LLM_CACHE
 
 logger = logging.getLogger(__name__)
 genai.configure(api_key=GEMINI_API_KEY)
@@ -113,7 +116,7 @@ def _send_with_retry(chat, message: str, max_attempts: int = 3) -> str:
             if _is_rate_limit_error(exc) and attempt < max_attempts - 1:
                 wait = 30 * (2 ** attempt)
                 logger.warning(
-                    "Rate limit en LLM, esperando %ds (intento %d/%d)",
+                    "Rate limit en Gemini, esperando %ds (intento %d/%d)",
                     wait, attempt + 1, max_attempts,
                 )
                 time.sleep(wait)
@@ -123,6 +126,13 @@ def _send_with_retry(chat, message: str, max_attempts: int = 3) -> str:
 
 
 def answer_question(osint_data: dict, question: str) -> str:
+    person_name = osint_data.get("query", "Unknown")
+    
+    # 1. Chequear caché
+    cached_response = LLM_CACHE.get(person_name, question)
+    if cached_response:
+        return cached_response
+    
     try:
         clean = _prune(osint_data)
         context_block = _build_context_block(
@@ -148,8 +158,6 @@ def answer_question(osint_data: dict, question: str) -> str:
             gemini_history.append({"role": "model", "parts": [turn.get("assistant", "")]})
 
         chat = _model.start_chat(history=gemini_history)
-        # Reinyectamos contexto si hay enriquecimiento que pudiera haberse
-        # añadido tras el primer turno (vision, structured incremental, etc.)
         has_enrichment = bool(
             osint_data.get("image_descriptions")
             or osint_data.get("structured")
@@ -160,16 +168,19 @@ def answer_question(osint_data: dict, question: str) -> str:
             if not history or has_enrichment
             else question
         )
-        return _send_with_retry(chat, message)
+        
+        # 2. Enviar a Gemini
+        response = _send_with_retry(chat, message)
+        LLM_CACHE.set(person_name, question, response)
+        return response
 
     except Exception as exc:
-        logger.error("Error en Gemini: %s", exc)
+        logger.error("Error en LLM: %s", exc)
         if _is_rate_limit_error(exc):
             return (
                 "Cupo de la API agotado temporalmente. Espera ~1 minuto e "
                 "intenta de nuevo. Si esto pasa a menudo, considera activar "
-                "Tier 1 en Google Cloud o cambiar LLM_MODEL a "
-                "gemini-2.5-flash-lite en el .env."
+                "Tier 1 en Google Cloud Console."
             )
         return f"Error al procesar la consulta: {exc}"
 

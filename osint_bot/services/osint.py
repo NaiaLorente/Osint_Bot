@@ -18,7 +18,6 @@ import re
 from sources.boe import search_boe
 from sources.duckduckgo import search_web as search_duckduckgo_web
 from sources.fetcher import fetch_page_text
-from sources.google_search import search_google_web
 from sources.webmii import search_webmii
 from sources.wikidata import search_wikidata
 from sources.wikipedia import search_wikipedia
@@ -92,11 +91,13 @@ def _rerank(results: list[dict], query: str) -> list[dict]:
     return sorted(results, key=lambda r: _result_score(r, terms), reverse=True)
 
 
-async def _search_one(loop, query: str, n: int = 5) -> list[dict]:
+async def _search_one(loop, query: str, n: int = 5, use_delay: bool = False) -> list[dict]:
+    """Busca usando DuckDuckGo (Google Custom Search removido)."""
+    if use_delay:
+        # Espera antes de hacer la búsqueda para evitar rate limiting
+        await asyncio.sleep(1.0)
     try:
-        results = await loop.run_in_executor(None, search_google_web, query, n)
-        if not results:
-            results = await loop.run_in_executor(None, search_duckduckgo_web, query, n)
+        results = await loop.run_in_executor(None, search_duckduckgo_web, query, n)
         return results or []
     except Exception as exc:  # noqa: BLE001
         logger.error("Error en búsqueda '%s': %s", query, exc)
@@ -111,7 +112,10 @@ def _safe(value, default):
 # ──────────────── Búsqueda inicial multivariante + fuentes ricas ────────────────
 
 async def run_full_search(query: str) -> dict:
-    """Búsqueda web multivariante + Wikipedia + Wikidata + Webmii + BOE, en paralelo."""
+    """Búsqueda web multivariante + Wikipedia + Wikidata + Webmii + BOE.
+    
+    Usa DuckDuckGo en lugar de Google Custom Search (no tiene límites de rate).
+    """
     loop = asyncio.get_event_loop()
     quoted = _quote(query)
 
@@ -124,7 +128,16 @@ async def run_full_search(query: str) -> dict:
         (f"{quoted} (noticias OR entrevista OR perfil)", 3),
     ]
 
-    web_tasks = [_search_one(loop, q, n) for q, n in web_variants]
+    # Búsquedas de DuckDuckGo en PARALELO (sin límites de rate)
+    logger.info(f"Iniciando búsqueda multivariante para: {query} (DuckDuckGo)")
+    
+    # Ejecutar todas las variantes en paralelo - DDG no tiene rate limit
+    web_tasks = [
+        loop.run_in_executor(None, search_duckduckgo_web, q, n)
+        for q, n in web_variants
+    ]
+    
+    # Búsquedas estructuradas EN PARALELO
     structured_tasks = [
         loop.run_in_executor(None, search_wikipedia, query),
         loop.run_in_executor(None, search_wikidata, query),
@@ -132,15 +145,42 @@ async def run_full_search(query: str) -> dict:
         loop.run_in_executor(None, search_boe, query, 3),
     ]
 
-    n_web = len(web_tasks)
+    # Ejecutar TODO en paralelo
     all_results = await asyncio.gather(
         *web_tasks, *structured_tasks, return_exceptions=True
     )
-    web_batches = [_safe(b, []) for b in all_results[:n_web]]
-    wikipedia_data = _safe(all_results[n_web], None)
-    wikidata_data = _safe(all_results[n_web + 1], None)
-    webmii_data = _safe(all_results[n_web + 2], []) or []
-    boe_data = _safe(all_results[n_web + 3], []) or []
+    
+    web_batches = [_safe(b, []) for b in all_results[:len(web_variants)]]
+    wikipedia_data = _safe(all_results[len(web_variants)], None)
+    wikidata_data = _safe(all_results[len(web_variants) + 1], None)
+    webmii_data = _safe(all_results[len(web_variants) + 2], []) or []
+    boe_data = _safe(all_results[len(web_variants) + 3], []) or []
+
+    # Merge web preservando orden, deduplicando
+    seen: set[str] = set()
+    merged: list[dict] = []
+    for batch in web_batches:
+        for r in batch:
+            url = r.get("url")
+            if url and url not in seen:
+                seen.add(url)
+                merged.append(r)
+
+    # Búsquedas estructuradas EN PARALELO (no presionan a Google)
+    structured_tasks = [
+        loop.run_in_executor(None, search_wikipedia, query),
+        loop.run_in_executor(None, search_wikidata, query),
+        loop.run_in_executor(None, search_webmii, query),
+        loop.run_in_executor(None, search_boe, query, 3),
+    ]
+
+    structured_results = await asyncio.gather(
+        *structured_tasks, return_exceptions=True
+    )
+    wikipedia_data = _safe(structured_results[0], None)
+    wikidata_data = _safe(structured_results[1], None)
+    webmii_data = _safe(structured_results[2], []) or []
+    boe_data = _safe(structured_results[3], []) or []
 
     # Merge web preservando orden, deduplicando
     seen: set[str] = set()
