@@ -9,7 +9,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from config import ALLOWED_USER_IDS
-from handlers.commands import perform_search, perform_question
+from handlers.commands import perform_search, perform_question, perform_refined_search
 
 _QUESTION_STARTS = (
     "qué", "que ", "quién", "quien ", "cuándo", "cuando ",
@@ -44,7 +44,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     from storage.sessions import get_session
 
     session = get_session(update.effective_chat.id)
-    if session and _looks_like_question(text):
+
+    if session and session.get("disambiguation_pending") and not _looks_like_question(text):
+        await perform_refined_search(update, session.get("query", ""), text)
+    elif session and _looks_like_question(text):
         await perform_question(update, text)
     else:
         await perform_search(update, text)

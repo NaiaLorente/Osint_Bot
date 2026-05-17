@@ -14,21 +14,15 @@ Bloques del contexto pasados al LLM (en este orden):
 """
 import json
 import logging
-import os
+import re
 import time
 
 import google.generativeai as genai
-from dotenv import load_dotenv
 
-load_dotenv()
+from config import GEMINI_API_KEY, LLM_MODEL_NAME
 
 logger = logging.getLogger(__name__)
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
-if not OPENROUTER_API_KEY:
-    raise RuntimeError("Falta OPENROUTER_API_KEY en el entorno (.env)")
-genai.configure(api_key=OPENROUTER_API_KEY)
-
-LLM_MODEL_NAME = os.getenv("LLM_MODEL", "gemini-2.5-flash").strip()
+genai.configure(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT = """Eres un asistente de OSINT. Tu tarea es responder preguntas \
 sobre una persona basándote en la información pública recopilada que se te \
@@ -90,6 +84,15 @@ _model = genai.GenerativeModel(
 )
 
 
+def _strip_response_label(text: str) -> str:
+    return re.sub(
+        r'^\s*\*{0,2}(HECHO|INFERENCIA|NO HAY EVIDENCIA)\*{0,2}\s*:\s*',
+        '',
+        text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    ).strip()
+
+
 def _is_rate_limit_error(exc: Exception) -> bool:
     msg = str(exc).lower()
     return any(s in msg for s in (
@@ -103,7 +106,8 @@ def _send_with_retry(chat, message: str, max_attempts: int = 3) -> str:
     for attempt in range(max_attempts):
         try:
             response = chat.send_message(message)
-            return response.text.strip() if response.text else "Sin respuesta del modelo."
+            raw = response.text.strip() if response.text else "Sin respuesta del modelo."
+            return _strip_response_label(raw)
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
             if _is_rate_limit_error(exc) and attempt < max_attempts - 1:

@@ -16,6 +16,7 @@ from handlers.commands import (
     search_command,
     ask_command,
     clear_command,
+    report_command,
 )
 from handlers.messages import handle_message
 
@@ -36,6 +37,7 @@ def main() -> None:
     app.add_handler(CommandHandler("search", search_command))
     app.add_handler(CommandHandler("ask", ask_command))
     app.add_handler(CommandHandler("clear", clear_command))
+    app.add_handler(CommandHandler("report", report_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot iniciado. Esperando mensajes...")

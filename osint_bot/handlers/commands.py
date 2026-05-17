@@ -92,6 +92,7 @@ WELCOME = (
     "<b>Comandos</b>\n"
     "/search &lt;nombre o usuario&gt; — Buscar\n"
     "/ask &lt;pregunta&gt; — Preguntar sobre la última búsqueda\n"
+    "/report — Exportar resumen de la sesión actual\n"
     "/clear — Borrar sesión\n"
     "/help — Ayuda\n\n"
     "<i>Solo información pública. Respeta la privacidad y las leyes "
@@ -145,6 +146,17 @@ async def perform_search(update: Update, query: str) -> None:
                 chunk, parse_mode=ParseMode.HTML, disable_web_page_preview=True,
             )
         await status.delete()
+        if results.get("full_name_matched") is False:
+            session = results
+            session["disambiguation_pending"] = True
+            set_session(update.effective_chat.id, session)
+            await update.message.reply_text(
+                "⚠️ No he encontrado resultados que coincidan exactamente con ese nombre.\n\n"
+                "¿Puedes añadir algún detalle para afinar la búsqueda?\n"
+                "<i>Ejemplos: ciudad, profesión, país, empresa, año aproximado…</i>\n\n"
+                "Escríbelo directamente y buscaré de nuevo.",
+                parse_mode=ParseMode.HTML,
+            )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Error en búsqueda")
         await status.edit_text(f"Error durante la búsqueda: {exc}")
@@ -404,6 +416,90 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await _deny(update); return
     clear_session(update.effective_chat.id)
     await update.message.reply_text("Sesión borrada.")
+
+
+async def perform_refined_search(update: Update, original_query: str, extra: str) -> None:
+    refined = f"{original_query} {extra}".strip()
+    await perform_search(update, refined)
+
+
+async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _authorized(update):
+        await _deny(update)
+        return
+    session = get_session(update.effective_chat.id)
+    if not session:
+        await update.message.reply_text(
+            "No hay sesión activa. Primero haz una búsqueda con /search <nombre>."
+        )
+        return
+    text = _build_report(session)
+    if len(text) <= 4096:
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+    else:
+        import io
+        raw = _strip_html(text)
+        file = io.BytesIO(raw.encode("utf-8"))
+        file.name = f"osint_{html.escape(session.get('query', 'report'))}.txt"
+        await update.message.reply_document(document=file, filename=file.name)
+
+
+def _strip_html(text: str) -> str:
+    return re.sub(r"<[^>]+>", "", text)
+
+
+def _esc(value: object) -> str:
+    return html.escape(str(value)) if value is not None else ""
+
+
+def _build_report(session: dict) -> str:
+    query = session.get("query", "—")
+    web = session.get("web") or []
+    pages = session.get("pages") or {}
+    history = session.get("history") or []
+    image_descriptions = session.get("image_descriptions") or {}
+
+    parts: list[str] = [
+        f"<b>Informe OSINT — {_esc(query)}</b>",
+        "",
+    ]
+
+    if web:
+        parts.append("<b>Fuentes encontradas</b>")
+        for idx, r in enumerate(web[:10], 1):
+            title = _esc(r.get("title") or r.get("url") or "")
+            url = _esc(r.get("url") or "")
+            snippet = _esc(next(
+                (str(r[k]) for k in ("snippet", "description", "body", "summary") if r.get(k)),
+                ""
+            ))
+            line = f'{idx}. <a href="{url}">{title}</a>'
+            if snippet:
+                line += f"\n   <i>{snippet[:120]}…</i>" if len(snippet) > 120 else f"\n   <i>{snippet}</i>"
+            parts.append(line)
+        parts.append("")
+
+    if pages:
+        parts.append("<b>Páginas analizadas</b>")
+        for url in pages:
+            parts.append(f'• <a href="{_esc(url)}">{_esc(url)}</a>')
+        parts.append("")
+
+    if image_descriptions:
+        parts.append("<b>Imágenes analizadas</b>")
+        for url, desc in image_descriptions.items():
+            short = desc[:200] + "…" if len(desc) > 200 else desc
+            parts.append(f'• <a href="{_esc(url)}">{_esc(url)}</a>\n  <i>{_esc(short)}</i>')
+        parts.append("")
+
+    if history:
+        parts.append("<b>Conversación</b>")
+        for turn in history:
+            parts.append(f"<b>P:</b> {_esc(turn.get('user', ''))}")
+            parts.append(f"<b>R:</b> {_esc(turn.get('assistant', ''))}")
+            parts.append("")
+
+    return "\n".join(parts)
 
 
 def _chunk_text(text: str, size: int) -> list[str]:

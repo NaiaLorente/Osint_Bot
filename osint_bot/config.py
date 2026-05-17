@@ -5,11 +5,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
+GEMINI_API_KEY = (
+    os.getenv("GEMINI_API_KEY") or os.getenv("OPENROUTER_API_KEY") or ""
+).strip()
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
 GOOGLE_SEARCH_API_KEY = os.getenv("GOOGLE_SEARCH_API_KEY", "").strip()
 GOOGLE_SEARCH_ENGINE_ID = os.getenv("GOOGLE_SEARCH_ENGINE_ID", "").strip()
 
+LLM_MODEL_NAME = os.getenv("LLM_MODEL", "gemini-2.5-flash").strip()
 WIKIPEDIA_LANG = os.getenv("WIKIPEDIA_LANG", "es").strip()
 
 _raw_allowed = os.getenv("ALLOWED_USER_IDS", "").strip()
@@ -21,5 +24,5 @@ ALLOWED_USER_IDS = (
 
 if not TELEGRAM_TOKEN:
     raise RuntimeError("Falta TELEGRAM_TOKEN en el entorno (.env)")
-if not OPENROUTER_API_KEY:
-    raise RuntimeError("Falta OPENROUTER_API_KEY en el entorno (.env)")
+if not GEMINI_API_KEY:
+    raise RuntimeError("Falta GEMINI_API_KEY en el entorno (.env)")
