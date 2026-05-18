@@ -294,13 +294,18 @@ async def fetch_top_pages(query_or_session: str | dict) -> dict[str, str]:
 
     relevant = [r for r in web if _is_relevant(r)] or web
 
+    seen: set[str] = set()
+    urls_to_fetch = [
+        r["url"] for r in relevant[:5]
+        if r.get("url") and not seen.add(r["url"])  # type: ignore[func-returns-value]
+    ]
+    texts = await asyncio.gather(
+        *[loop.run_in_executor(None, fetch_page_text, url) for url in urls_to_fetch],
+        return_exceptions=True,
+    )
     pages: dict[str, str] = {}
-    for r in relevant[:5]:
-        url = r.get("url")
-        if not url or url in pages:
-            continue
-        text = await loop.run_in_executor(None, fetch_page_text, url)
-        if text:
+    for url, text in zip(urls_to_fetch, texts):
+        if isinstance(text, str) and text:
             pages[url] = text
     return pages
 

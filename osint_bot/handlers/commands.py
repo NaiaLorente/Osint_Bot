@@ -91,7 +91,8 @@ WELCOME = (
     "<b>sin evidencia</b>.\n\n"
     "<b>Comandos</b>\n"
     "/search &lt;nombre o usuario&gt; — Buscar\n"
-    "/ask &lt;pregunta&gt; — Preguntar sobre la última búsqueda\n"
+    "/ask &lt;pregunta&gt; — Preguntar (modo básico, rápido)\n"
+    "/deep &lt;pregunta&gt; — Búsqueda profunda (más lenta, más completa)\n"
     "/report — Exportar resumen de la sesión actual\n"
     "/clear — Borrar sesión\n"
     "/help — Ayuda\n\n"
@@ -176,6 +177,16 @@ async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text("Uso: /ask <pregunta>")
         return
     await perform_question(update, question)
+
+
+async def deep_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _authorized(update):
+        await _deny(update); return
+    question = " ".join(context.args).strip()
+    if not question:
+        await update.message.reply_text("Uso: /deep <pregunta>")
+        return
+    await perform_deep_question(update, question)
 
 
 # ─── Enriquecimientos ─────────────────────────────────────────────────────────
@@ -326,7 +337,34 @@ async def _proactive_deep_search(chat_id: int, session: dict, question: str, sta
 
 # ─── Q&A ──────────────────────────────────────────────────────────────────────
 
+async def _load_base_pages(chat_id: int, session: dict, status) -> None:
+    """Descarga páginas base en el primer /ask (paralelo). Muta session en sitio."""
+    if session.get("pages") is None:
+        try:
+            await status.edit_text("Leyendo páginas…")
+        except Exception:  # noqa: BLE001
+            pass
+        session["pages"] = await fetch_top_pages(session)
+        set_session(chat_id, session)
+
+
+async def _fetch_urls_in_question(chat_id: int, session: dict, question: str) -> None:
+    urls = [u for u in _URL_RE.findall(question) if u not in (session.get("pages") or {})]
+    if not urls:
+        return
+    loop = asyncio.get_event_loop()
+    texts = await asyncio.gather(
+        *[loop.run_in_executor(None, fetch_page_text, u) for u in urls[:3]],
+        return_exceptions=True,
+    )
+    for url, text in zip(urls[:3], texts):
+        if isinstance(text, str) and text:
+            session.setdefault("pages", {})[url] = text
+    set_session(chat_id, session)
+
+
 async def perform_question(update: Update, question: str) -> None:
+    """Modo básico: fuentes del /search + enriquecimiento ligero. Rápido y barato."""
     session = get_session(update.effective_chat.id)
     if not session:
         await update.effective_message.reply_text(
@@ -335,64 +373,88 @@ async def perform_question(update: Update, question: str) -> None:
         return
 
     await update.effective_message.reply_chat_action(ChatAction.TYPING)
-    status = await update.effective_message.reply_text("Leyendo páginas y pensando…")
+    status = await update.effective_message.reply_text("Pensando…")
     try:
         loop = asyncio.get_event_loop()
         chat_id = update.effective_chat.id
 
-        # 1) Páginas base (primer /ask)
-        if session.get("pages") is None:
-            session["pages"] = await fetch_top_pages(session)
-            set_session(chat_id, session)
+        await _load_base_pages(chat_id, session, status)
+        await _fetch_urls_in_question(chat_id, session, question)
+        await _enrich_structured(chat_id, session, status)
+        await _enrich_github(chat_id, session, status)
+        if _needs_vision(question):
+            await _enrich_with_vision(chat_id, session, status)
 
-        # 2) URLs pegadas en la pregunta
-        urls_in_question = _URL_RE.findall(question)
-        if urls_in_question:
-            pages = session["pages"]
-            extra = await asyncio.gather(
-                *[
-                    loop.run_in_executor(None, fetch_page_text, url)
-                    for url in urls_in_question[:3]
-                    if url not in pages
-                ]
+        try:
+            await status.edit_text("Pensando…")
+        except Exception:  # noqa: BLE001
+            pass
+        answer = await loop.run_in_executor(None, answer_question, session, question)
+
+        history = session.get("history") or []
+        history.append({"user": question, "assistant": answer})
+        session["history"] = history[-10:]
+        set_session(chat_id, session)
+
+        if _is_no_answer(answer):
+            session["pending_deep_question"] = question
+            set_session(chat_id, session)
+            keyboard = InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔍 Buscar más profundo", callback_data="deep_ask"),
+            ]])
+            await status.edit_text(
+                f"{answer}\n\n<i>¿Quieres que busque más a fondo?</i>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard,
             )
-            for url, text in zip(urls_in_question[:3], extra):
-                if isinstance(text, str) and text:
-                    pages[url] = text
-            set_session(chat_id, session)
+        else:
+            await status.edit_text(answer)
 
-        # 3) Búsqueda profunda dirigida a la pregunta (cached por firma)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Error en Q&A básico")
+        await status.edit_text(f"Error al responder: {exc}")
+
+
+async def perform_deep_question(update: Update, question: str) -> None:
+    """Modo profundo: búsqueda dirigida + todas las fuentes + fallback."""
+    session = get_session(update.effective_chat.id)
+    if not session:
+        await update.effective_message.reply_text(
+            "No hay datos en sesión. Primero haz una búsqueda con /search <nombre>."
+        )
+        return
+
+    await update.effective_message.reply_chat_action(ChatAction.TYPING)
+    status = await update.effective_message.reply_text("🔍 Búsqueda profunda en curso…")
+    try:
+        loop = asyncio.get_event_loop()
+        chat_id = update.effective_chat.id
+
+        await _load_base_pages(chat_id, session, status)
+        await _fetch_urls_in_question(chat_id, session, question)
+
         brought_new = await _proactive_deep_search(chat_id, session, question, status)
-
-        # 4) Si entraron páginas nuevas, invalidamos caché de imágenes y forzamos
-        #    una nueva pasada de extracción estructurada (los nuevos URLs no
-        #    están en `structured` todavía, así que _enrich_structured los recogerá).
         if brought_new and _needs_vision(question):
             session["image_urls"] = None
             set_session(chat_id, session)
 
-        # 5) Enriquecimiento estructurado (incremental, barato)
         await _enrich_structured(chat_id, session, status)
-
-        # 6) GitHub (una vez por sesión)
         await _enrich_github(chat_id, session, status)
-
-        # 7) Visión si la pregunta es visual
         if _needs_vision(question):
             await _enrich_with_vision(chat_id, session, status)
 
-        # 8) Respuesta del LLM con todo el contexto
-        answer = answer_question(session, question)
+        try:
+            await status.edit_text("Pensando…")
+        except Exception:  # noqa: BLE001
+            pass
+        answer = await loop.run_in_executor(None, answer_question, session, question)
 
-        # 9) Último recurso si se rinde sin razonar
         note = ""
         if _is_no_answer(answer):
             person = session.get("query", "")
             if person:
                 await status.edit_text("Buscando más fuentes (último intento)…")
-                new_pages = await targeted_search(
-                    person, question, session.get("pages") or {}
-                )
+                new_pages = await targeted_search(person, question, session.get("pages") or {})
                 if new_pages:
                     session.setdefault("pages", {}).update(new_pages)
                     if _needs_vision(question):
@@ -401,19 +463,17 @@ async def perform_question(update: Update, question: str) -> None:
                     await _enrich_structured(chat_id, session, status)
                     if _needs_vision(question):
                         await _enrich_with_vision(chat_id, session, status)
-                    answer = answer_question(session, question)
-                    note = (
-                        "Esta información requería búsqueda adicional fuera de "
-                        "los enlaces previos.\n\n"
-                    )
+                    answer = await loop.run_in_executor(None, answer_question, session, question)
+                    note = "Esta información requería búsqueda adicional.\n\n"
 
         history = session.get("history") or []
         history.append({"user": question, "assistant": answer})
-        session["history"] = history
+        session["history"] = history[-10:]
         set_session(chat_id, session)
         await status.edit_text(f"{note}{answer}")
+
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Error en Q&A")
+        logger.exception("Error en Q&A profundo")
         await status.edit_text(f"Error al responder: {exc}")
 
 
@@ -545,6 +605,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     data = query.data or ""
     if data.startswith("ask:"):
         await perform_question(update, data[4:])
+    elif data == "deep_ask":
+        session = get_session(update.effective_chat.id)
+        question = (session or {}).get("pending_deep_question", "")
+        if question:
+            await perform_deep_question(update, question)
+        else:
+            await query.message.reply_text("No hay pregunta pendiente. Usa /deep <pregunta>.")
     elif data == "report":
         await report_command(update, context)
 
