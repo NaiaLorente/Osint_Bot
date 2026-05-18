@@ -20,6 +20,7 @@ import re
 
 from sources.duckduckgo import search_web as search_duckduckgo_web
 from sources.fetcher import fetch_page_text
+from sources.google_search import search_google_web
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,9 @@ def _rerank(results: list[dict], query: str) -> list[dict]:
 
 async def _search_one(loop, query: str, n: int = 5) -> list[dict]:
     try:
-        results = await loop.run_in_executor(None, search_duckduckgo_web, query, n)
+        results = await loop.run_in_executor(None, search_google_web, query, n)
+        if not results:
+            results = await loop.run_in_executor(None, search_duckduckgo_web, query, n)
         return results or []
     except Exception as exc:  # noqa: BLE001
         logger.error("Error en búsqueda '%s': %s", query, exc)
