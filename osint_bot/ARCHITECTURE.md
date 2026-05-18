@@ -14,9 +14,8 @@ El bot es un servicio de Telegram que recibe consultas de usuario y responde con
 Su flujo principal es:
 
 1. El usuario envía un nombre o usuario.
-2. El bot busca en la web usando Google Search si está disponible.
-3. Si Google no está configurado, usa DuckDuckGo.
-4. El bot devuelve los mejores enlaces en Telegram.
+2. El bot busca en la web usando DuckDuckGo.
+3. El bot devuelve los mejores enlaces en Telegram.
 5. El usuario puede preguntar sobre esa búsqueda con `/ask`.
 6. El bot descarga páginas adicionales y usa un modelo de IA para responder.
 
@@ -42,8 +41,8 @@ Carga las variables de entorno desde `.env` y define:
 - `TELEGRAM_TOKEN`
 - `OPENROUTER_API_KEY`
 - `GITHUB_TOKEN`
-- `GOOGLE_SEARCH_API_KEY`
-- `GOOGLE_SEARCH_ENGINE_ID`
+- `GOOGLE_SEARCH_API_KEY` — opcional para Google Custom Search legado; no se usa en el flujo activo.
+- `GOOGLE_SEARCH_ENGINE_ID` — opcional para Google Custom Search legado; no se usa en el flujo activo.
 - `LLM_MODEL`
 - `WIKIPEDIA_LANG`
 - `ALLOWED_USER_IDS`
@@ -83,24 +82,21 @@ La heurística de pregunta considera signos de interrogación y palabras como:
 
 ### 4.1 `services/osint.py` → `run_full_search()`
 
-1. Intentar `search_google_web(query, 10)`.
-2. Si no devuelve resultados, usar `search_duckduckgo_web(query, 10)`.
-3. Construir un diccionario `results` con:
+1. Ejecutar `search_duckduckgo_web(query, 10)`.
+2. Construir un diccionario `results` con:
    - `query`
    - `web` (lista de enlaces)
    - `history` (lista vacía inicialmente)
    - `html_links` (resumen en HTML de los enlaces)
 
-### 4.2 `search_google_web()`
+### 4.2 `search_duckduckgo_web()`
 
-En `sources/google_search.py`:
+En `sources/duckduckgo.py`:
 
-- usa la API de Google Custom Search si `GOOGLE_SEARCH_API_KEY` y
-  `GOOGLE_SEARCH_ENGINE_ID` están configurados.
-- pide `num` resultados y devuelve la lista de enlaces.
-- si ocurre error o no hay credenciales, devuelve `[]`.
-
-### 4.3 `search_duckduckgo_web()`
+- usa la librería `ddgs` para buscar en DuckDuckGo.
+- devuelve enlaces, títulos y snippets.
+- también tiene funciones auxiliares para LinkedIn, X/Twitter, GitHub,
+  Instagram y noticias, aunque el flujo principal usa solo la búsqueda web.
 
 En `sources/duckduckgo.py`:
 
@@ -135,7 +131,7 @@ Ese texto se envía en uno o varios mensajes cortos.
 ### 5.2 `fetch_top_pages()`
 
 - recibe la sesión o el query.
-- busca los 5 mejores resultados con Google o DuckDuckGo.
+- busca los 5 mejores resultados con DuckDuckGo.
 - descarga el texto de cada URL con `fetch_page_text()`.
 - devuelve un diccionario `pages[url] = texto`.
 
@@ -163,7 +159,7 @@ el bot considera que no encontró la respuesta y ejecuta `targeted_search()`.
 ### 5.5 `targeted_search()`
 
 - construye una consulta dirigida: `query + pregunta`.
-- busca con Google o DuckDuckGo.
+- busca con DuckDuckGo.
 - descarga texto de las mejores URLs nuevas.
 - añade esas páginas a la sesión y vuelve a preguntar al modelo.
 
@@ -224,8 +220,8 @@ Variables clave:
 
 - `TELEGRAM_TOKEN` — token del bot Telegram.
 - `OPENROUTER_API_KEY` — clave para OpenRouter/Gemini.
-- `GOOGLE_SEARCH_API_KEY` — opcional para Google Custom Search.
-- `GOOGLE_SEARCH_ENGINE_ID` — opcional para Google Custom Search.
+- `GOOGLE_SEARCH_API_KEY` — opcional para Google Custom Search legado; no se usa en el flujo activo.
+- `GOOGLE_SEARCH_ENGINE_ID` — opcional para Google Custom Search legado; no se usa en el flujo activo.
 - `GITHUB_TOKEN` — opcional para GitHub.
 - `LLM_MODEL` — modelo Gemini (por defecto `gemini-2.5-flash-lite`).
 - `WIKIPEDIA_LANG` — idioma para Wikipedia si se usa.
@@ -236,7 +232,7 @@ Variables clave:
 ### `/search` hace:
 
 - `run_full_search(query)`
-- `search_google_web(query)` o `search_duckduckgo_web(query)`
+- `search_duckduckgo_web(query)`
 - construye `results` con `query`, `web`, `history`, `html_links`
 - guarda sesión con `set_session(chat_id, results)`
 - responde con texto HTML

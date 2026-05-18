@@ -1,7 +1,7 @@
 """Orquestador OSINT.
 
 - run_full_search(query): /search. Búsqueda multivariante web + Wikipedia +
-  Wikidata + Webmii + BOE/BORME, todo en paralelo.
+  Wikidata + Webmii, todo en paralelo.
 - fetch_top_pages(session): descarga texto de las páginas top de /search.
 - targeted_search(person, question): fallback ligero (legacy, rara vez usado).
 - deep_question_search(person, question): búsqueda exhaustiva orientada a la
@@ -15,10 +15,8 @@ import html
 import logging
 import re
 
-from sources.boe import search_boe
 from sources.duckduckgo import search_web as search_duckduckgo_web
 from sources.fetcher import fetch_page_text
-from sources.google_search import search_google_web
 from sources.webmii import search_webmii
 from sources.wikidata import search_wikidata
 from sources.wikipedia import search_wikipedia
@@ -94,10 +92,7 @@ def _rerank(results: list[dict], query: str) -> list[dict]:
 
 async def _search_one(loop, query: str, n: int = 5) -> list[dict]:
     try:
-        results = await loop.run_in_executor(None, search_google_web, query, n)
-        if not results:
-            results = await loop.run_in_executor(None, search_duckduckgo_web, query, n)
-        return results or []
+        return await loop.run_in_executor(None, search_duckduckgo_web, query, n) or []
     except Exception as exc:  # noqa: BLE001
         logger.error("Error en búsqueda '%s': %s", query, exc)
         return []
@@ -111,7 +106,7 @@ def _safe(value, default):
 # ──────────────── Búsqueda inicial multivariante + fuentes ricas ────────────────
 
 async def run_full_search(query: str) -> dict:
-    """Búsqueda web multivariante + Wikipedia + Wikidata + Webmii + BOE, en paralelo."""
+    """Búsqueda web multivariante + Wikipedia + Wikidata + Webmii, en paralelo."""
     loop = asyncio.get_event_loop()
     quoted = _quote(query)
 
@@ -124,25 +119,21 @@ async def run_full_search(query: str) -> dict:
         (f"{quoted} (noticias OR entrevista OR perfil)", 3),
     ]
 
-    web_tasks = [_search_one(loop, q, n) for q, n in web_variants]
-    structured_tasks = [
-        loop.run_in_executor(None, search_wikipedia, query),
-        loop.run_in_executor(None, search_wikidata, query),
-        loop.run_in_executor(None, search_webmii, query),
-        loop.run_in_executor(None, search_boe, query, 3),
-    ]
-
-    n_web = len(web_tasks)
-    all_results = await asyncio.gather(
-        *web_tasks, *structured_tasks, return_exceptions=True
+    web_batches = await asyncio.gather(
+        *[_search_one(loop, q, n) for q, n in web_variants]
     )
-    web_batches = [_safe(b, []) for b in all_results[:n_web]]
-    wikipedia_data = _safe(all_results[n_web], None)
-    wikidata_data = _safe(all_results[n_web + 1], None)
-    webmii_data = _safe(all_results[n_web + 2], []) or []
-    boe_data = _safe(all_results[n_web + 3], []) or []
 
-    # Merge web preservando orden, deduplicando
+    wikipedia_task = loop.run_in_executor(None, search_wikipedia, query)
+    wikidata_task = loop.run_in_executor(None, search_wikidata, query)
+    webmii_task = loop.run_in_executor(None, search_webmii, query)
+
+    wikipedia_data, wikidata_data, webmii_data = await asyncio.gather(
+        wikipedia_task,
+        wikidata_task,
+        webmii_task,
+        return_exceptions=True,
+    )
+
     seen: set[str] = set()
     merged: list[dict] = []
     for batch in web_batches:
@@ -164,10 +155,9 @@ async def run_full_search(query: str) -> dict:
         "web": ranked[:10],
         "history": [],
         "full_name_matched": full_match,
-        "wikipedia": wikipedia_data,
-        "wikidata": wikidata_data,
-        "webmii": webmii_data,
-        "boe": boe_data,
+        "wikipedia": _safe(wikipedia_data, None),
+        "wikidata": _safe(wikidata_data, None),
+        "webmii": _safe(webmii_data, []) or [],
     }
     results["html_links"] = _build_html_context(results)
     return results
@@ -233,19 +223,6 @@ def format_results(results: dict) -> str:
     wp = results.get("wikipedia")
     if wp:
         parts.append(f"📖 <b>Wikipedia:</b> {_link(wp.get('title'), wp.get('url'))}")
-        parts.append("")
-
-    # BOE/BORME
-    boe = results.get("boe") or []
-    if boe:
-        parts.append("⚖️ <b>BOE / BORME</b>")
-        for b in boe[:4]:
-            label = f"[{b.get('source','')}] {b.get('title','')}".strip()
-            date = b.get("date", "")
-            line = f"• {_link(label, b.get('url'))}"
-            if date:
-                line += f" <i>({_esc(date)})</i>"
-            parts.append(line)
         parts.append("")
 
     # Webmii

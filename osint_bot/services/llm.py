@@ -5,12 +5,11 @@ Bloques del contexto pasados al LLM (en este orden):
   2. CONTEXTO ENLACES — lista HTML de las URLs top
   3. WIKIDATA — datos biográficos estructurados (cuando existen)
   4. WIKIPEDIA — resumen biográfico (cuando existe)
-  5. BOE/BORME — registros oficiales españoles (cuando aplican)
-  6. WEBMII — agregador de presencia web
-  7. DATOS ESTRUCTURADOS — schema.org/JSON-LD/OG de las páginas visitadas
-  8. GITHUB — perfiles y repos públicos
-  9. CONTENIDO DE PÁGINAS VISITADAS — texto extraído
-  10. DESCRIPCIONES DE IMÁGENES — análisis de visión sobre fotos públicas
+  5. WEBMII — agregador de presencia web
+  6. DATOS ESTRUCTURADOS — schema.org/JSON-LD/OG de las páginas visitadas
+  7. GITHUB — perfiles y repos públicos
+  8. CONTENIDO DE PÁGINAS VISITADAS — texto extraído
+  9. DESCRIPCIONES DE IMÁGENES — análisis de visión sobre fotos públicas
 """
 import json
 import logging
@@ -43,8 +42,6 @@ Prioriza, en este orden, lo más fiable cuando varias fuentes coinciden:
 - WIKIDATA (datos estructurados verificados por la comunidad). Si Wikidata da \
   fecha de nacimiento, ocupación, empleador, etc., es HECHO de alta confianza.
 - WIKIPEDIA (resumen biográfico curado).
-- BOE/BORME (registros oficiales del Estado español; alta confianza pero \
-  contexto legal/administrativo, no necesariamente la vida actual).
 - DATOS ESTRUCTURADOS de páginas (JSON-LD schema.org de la propia institución/medio).
 - GITHUB (datos declarados por el usuario).
 - WEBMII (agregador; útil para descubrir perfiles, no para datos sensibles).
@@ -71,7 +68,9 @@ distintas como si fueran la misma persona.
 
 == ESTILO ==
 Conciso. Mismo idioma que la pregunta. Cita URLs entre paréntesis. Agrupa \
-por persona/entidad, no por fuente.
+por persona/entidad, no por fuente. Responde en párrafos breves y evita \
+listas, viñetas, negritas y asteriscos. Si presentas hechos o inferencias, hazlo \
+en oraciones normales, sin encabezados de sección.
 """
 
 _model = genai.GenerativeModel(
@@ -85,12 +84,21 @@ _model = genai.GenerativeModel(
 
 
 def _strip_response_label(text: str) -> str:
-    return re.sub(
+    text = re.sub(
         r'^\s*\*{0,2}(HECHO|INFERENCIA|NO HAY EVIDENCIA)\*{0,2}\s*:\s*',
         '',
         text,
         flags=re.IGNORECASE | re.MULTILINE,
     ).strip()
+    return _normalize_response_text(text)
+
+
+def _normalize_response_text(text: str) -> str:
+    text = re.sub(r'^\s*[\*\-\u2022]\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*\d+\.\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
+    text = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', text)
+    return "\n".join(line.strip() for line in text.splitlines() if line.strip())
 
 
 def _is_rate_limit_error(exc: Exception) -> bool:
@@ -135,7 +143,6 @@ def answer_question(osint_data: dict, question: str) -> str:
             wikipedia=osint_data.get("wikipedia"),
             wikidata=osint_data.get("wikidata"),
             webmii=osint_data.get("webmii") or [],
-            boe=osint_data.get("boe") or [],
         )
         history = osint_data.get("history") or []
 
@@ -185,7 +192,6 @@ def _build_context_block(
     wikipedia: dict | None,
     wikidata: dict | None,
     webmii: list,
-    boe: list,
 ) -> str:
     block = f"CONTEXTO OSINT (JSON):\n{json.dumps(clean, indent=2, ensure_ascii=False)}"
 
@@ -203,17 +209,6 @@ def _build_context_block(
         block += f"\nIdioma: {wikipedia.get('lang', '')}"
         block += f"\n{wikipedia.get('summary', '')}"
 
-    if boe:
-        block += "\n\nBOE / BORME (registros oficiales españoles):"
-        for b in boe:
-            block += (
-                f"\n- [{b.get('source','')}] {b.get('title','')} "
-                f"({b.get('date','')})"
-                f"\n  URL: {b.get('url','')}"
-            )
-            snippet = b.get("snippet")
-            if snippet:
-                block += f"\n  Extracto: {snippet}"
 
     if webmii:
         block += "\n\nWEBMII (presencia web agregada — enlaces a perfiles):"
@@ -262,7 +257,6 @@ def _prune(data: dict) -> dict:
         "wikipedia",
         "wikidata",
         "webmii",
-        "boe",
         "full_name_matched",
         "searched_sigs",
         "enrichment_done",

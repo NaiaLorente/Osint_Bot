@@ -9,8 +9,6 @@ GEMINI_API_KEY = (
     os.getenv("GEMINI_API_KEY") or os.getenv("OPENROUTER_API_KEY") or ""
 ).strip()
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
-GOOGLE_SEARCH_API_KEY = os.getenv("GOOGLE_SEARCH_API_KEY", "").strip()
-GOOGLE_SEARCH_ENGINE_ID = os.getenv("GOOGLE_SEARCH_ENGINE_ID", "").strip()
 
 LLM_MODEL_NAME = os.getenv("LLM_MODEL", "gemini-2.5-flash").strip()
 WIKIPEDIA_LANG = os.getenv("WIKIPEDIA_LANG", "es").strip()

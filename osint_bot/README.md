@@ -4,8 +4,9 @@ Bot de Telegram que recibe un nombre o usuario, busca resultados web en fuentes 
 
 ## Qué hace realmente este bot
 
-- Ejecuta una búsqueda web usando Google Custom Search API si está configurado.
-- Si no hay credenciales de Google Search, usa DuckDuckGo como fallback.
+- Ejecuta una búsqueda multivariante usando DuckDuckGo.
+- No depende de Google Search activa ni de Google Custom Search API.
+- Recopila contexto adicional de Wikipedia, Wikidata y Webmii en paralelo.
 - Devuelve los primeros enlaces relevantes ordenados.
 - Guarda el contexto de la búsqueda en la sesión del chat.
 - Permite preguntar con `/ask <pregunta>` sobre la última búsqueda.
@@ -24,7 +25,7 @@ osint_bot/
 │   └── messages.py        # Texto libre -> /search o /ask
 ├── sources/
 │   ├── duckduckgo.py      # Búsqueda web y enlaces públicos
-│   ├── google_search.py   # Google Custom Search (opcional)
+│   ├── google_search.py   # Google Custom Search legado (no usado en el flujo activo)
 │   └── fetcher.py         # Descarga y limpia texto de páginas web
 ├── services/
 │   ├── osint.py           # Orquesta búsquedas y formatea resultados
@@ -76,13 +77,13 @@ TELEGRAM_TOKEN=dummy OPENROUTER_API_KEY=dummy pytest tests/ -v
 - `TELEGRAM_TOKEN` — token del bot de Telegram.
 - `OPENROUTER_API_KEY` — clave de OpenRouter para el modelo Gemini.
 - `GITHUB_TOKEN` — token de GitHub opcional para mejorar el rate limit si se usa GitHub.
-- `GOOGLE_SEARCH_API_KEY` — clave de Google Search API opcional.
-- `GOOGLE_SEARCH_ENGINE_ID` — ID de motor de búsqueda de Google opcional.
+- `GOOGLE_SEARCH_API_KEY` — clave de Google Search API opcional (no usada en el flujo activo).
+- `GOOGLE_SEARCH_ENGINE_ID` — ID de motor de búsqueda de Google opcional (no usada en el flujo activo).
 - `LLM_MODEL` — modelo Gemini a usar (por defecto `gemini-2.5-flash-lite`).
-- `WIKIPEDIA_LANG` — idioma de Wikipedia si se utiliza la fuente de Wikipedia (no está integrada activamente en este momento).
+- `WIKIPEDIA_LANG` — idioma de Wikipedia para las consultas de Wikipedia.
 - `ALLOWED_USER_IDS` — IDs de Telegram autorizados, separados por comas.
 
-> Nota: el flujo actual usa principalmente Google Search/DuckDuckGo y OpenRouter/Gemini. Las funciones de Wikipedia, GitHub y Wikidata no se encuentran integradas en el flujo activo del bot.
+> Nota: el flujo actual usa DuckDuckGo + Wikipedia + Wikidata + Webmii y Gemini para respuestas.
 
 ## Uso en Telegram
 
@@ -140,7 +141,7 @@ Orden sugerido:
 ## Limitaciones actuales
 
 - El bot no extrae perfiles completos de LinkedIn ni X/Twitter; solo muestra enlaces públicos.
-- Sin Google Search configurado, usa DuckDuckGo.
+- El flujo de búsqueda principal usa DuckDuckGo.
 - El Q&A solo responde con información disponible en los enlaces y páginas descargadas.
 
 ## Licencia
