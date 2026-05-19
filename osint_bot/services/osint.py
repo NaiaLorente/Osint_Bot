@@ -1,7 +1,7 @@
 """Orquestador OSINT.
 
 - run_full_search(query): /search. Búsqueda multivariante web + Wikipedia +
-  Wikidata + Webmii, todo en paralelo.
+  Wikidata, todo en paralelo.
 - fetch_top_pages(session): descarga texto de las páginas top de /search.
 - targeted_search(person, question): fallback ligero (legacy, rara vez usado).
 - deep_question_search(person, question): búsqueda exhaustiva orientada a la
@@ -17,7 +17,6 @@ import re
 
 from sources.duckduckgo import search_web as search_duckduckgo_web
 from sources.fetcher import fetch_page_text
-from sources.webmii import search_webmii
 from sources.wikidata import search_wikidata
 from sources.wikipedia import search_wikipedia
 
@@ -106,7 +105,7 @@ def _safe(value, default):
 # ──────────────── Búsqueda inicial multivariante + fuentes ricas ────────────────
 
 async def run_full_search(query: str) -> dict:
-    """Búsqueda web multivariante + Wikipedia + Wikidata + Webmii, en paralelo."""
+    """Búsqueda web multivariante + Wikipedia + Wikidata, en paralelo."""
     loop = asyncio.get_event_loop()
     quoted = _quote(query)
 
@@ -125,12 +124,10 @@ async def run_full_search(query: str) -> dict:
 
     wikipedia_task = loop.run_in_executor(None, search_wikipedia, query)
     wikidata_task = loop.run_in_executor(None, search_wikidata, query)
-    webmii_task = loop.run_in_executor(None, search_webmii, query)
 
-    wikipedia_data, wikidata_data, webmii_data = await asyncio.gather(
+    wikipedia_data, wikidata_data = await asyncio.gather(
         wikipedia_task,
         wikidata_task,
-        webmii_task,
         return_exceptions=True,
     )
 
@@ -157,7 +154,6 @@ async def run_full_search(query: str) -> dict:
         "full_name_matched": full_match,
         "wikipedia": _safe(wikipedia_data, None),
         "wikidata": _safe(wikidata_data, None),
-        "webmii": _safe(webmii_data, []) or [],
     }
     results["html_links"] = _build_html_context(results)
     return results
@@ -223,14 +219,6 @@ def format_results(results: dict) -> str:
     wp = results.get("wikipedia")
     if wp:
         parts.append(f"📖 <b>Wikipedia:</b> {_link(wp.get('title'), wp.get('url'))}")
-        parts.append("")
-
-    # Webmii
-    webmii = results.get("webmii") or []
-    if webmii:
-        parts.append("🌐 <b>Webmii (presencia web agregada)</b>")
-        for w in webmii[:4]:
-            parts.append(f"• {_link(w.get('title'), w.get('url'))}")
         parts.append("")
 
     # Web
@@ -493,7 +481,7 @@ async def deep_question_search(
 
     ranked = sorted(merged, key=_score, reverse=True)
 
-    sem = asyncio.Semaphore(4)
+    sem = asyncio.semaphore(4)
 
     async def _fetch(url: str) -> tuple[str, str | None]:
         async with sem:

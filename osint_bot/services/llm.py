@@ -5,11 +5,10 @@ Bloques del contexto pasados al LLM (en este orden):
   2. CONTEXTO ENLACES — lista HTML de las URLs top
   3. WIKIDATA — datos biográficos estructurados (cuando existen)
   4. WIKIPEDIA — resumen biográfico (cuando existe)
-  5. WEBMII — agregador de presencia web
-  6. DATOS ESTRUCTURADOS — schema.org/JSON-LD/OG de las páginas visitadas
-  7. GITHUB — perfiles y repos públicos
-  8. CONTENIDO DE PÁGINAS VISITADAS — texto extraído
-  9. DESCRIPCIONES DE IMÁGENES — análisis de visión sobre fotos públicas
+  5. DATOS ESTRUCTURADOS — schema.org/JSON-LD/OG de las páginas visitadas
+  6. GITHUB — perfiles y repos públicos
+  7. CONTENIDO DE PÁGINAS VISITADAS — texto extraído
+  8. DESCRIPCIONES DE IMÁGENES — análisis de visión sobre fotos públicas
 """
 import json
 import logging
@@ -44,7 +43,6 @@ Prioriza, en este orden, lo más fiable cuando varias fuentes coinciden:
 - WIKIPEDIA (resumen biográfico curado).
 - DATOS ESTRUCTURADOS de páginas (JSON-LD schema.org de la propia institución/medio).
 - GITHUB (datos declarados por el usuario).
-- WEBMII (agregador; útil para descubrir perfiles, no para datos sensibles).
 - Contenido de páginas (texto plano).
 - Descripciones de imágenes (factual pero parcial).
 
@@ -142,7 +140,6 @@ def answer_question(osint_data: dict, question: str) -> str:
             github=osint_data.get("github") or {},
             wikipedia=osint_data.get("wikipedia"),
             wikidata=osint_data.get("wikidata"),
-            webmii=osint_data.get("webmii") or [],
         )
         history = osint_data.get("history") or []
 
@@ -191,7 +188,6 @@ def _build_context_block(
     github: dict,
     wikipedia: dict | None,
     wikidata: dict | None,
-    webmii: list,
 ) -> str:
     block = f"CONTEXTO OSINT (JSON):\n{json.dumps(clean, indent=2, ensure_ascii=False)}"
 
@@ -208,12 +204,6 @@ def _build_context_block(
         block += f"\nTítulo: {wikipedia.get('title', '')}"
         block += f"\nIdioma: {wikipedia.get('lang', '')}"
         block += f"\n{wikipedia.get('summary', '')}"
-
-
-    if webmii:
-        block += "\n\nWEBMII (presencia web agregada — enlaces a perfiles):"
-        for w in webmii[:8]:
-            block += f"\n- {w.get('title','')}: {w.get('url','')}"
 
     if structured:
         block += "\n\nDATOS ESTRUCTURADOS (schema.org / Open Graph de páginas):"
@@ -256,7 +246,6 @@ def _prune(data: dict) -> dict:
         "github",
         "wikipedia",
         "wikidata",
-        "webmii",
         "full_name_matched",
         "searched_sigs",
         "enrichment_done",
