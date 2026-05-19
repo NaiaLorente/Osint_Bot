@@ -1,7 +1,4 @@
 """Almacenamiento en memoria de la sesión OSINT por chat.
-
-Sencillo y suficiente para un bot personal. Si lo escalas a varios
-usuarios, sustituye este módulo por Redis o SQLite.
 """
 from threading import Lock
 
