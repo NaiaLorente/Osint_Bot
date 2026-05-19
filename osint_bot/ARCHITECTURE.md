@@ -304,7 +304,7 @@ Variables clave:
 - `sources/github.py` solo se activa como enriquecimiento de `/ask` y `/deep`
   cuando aparecen URLs `github.com`.
 
-## 12. Recomendaciones de mejora
+## 12. Próximos pasos de mejora
 
 - Integrar `sources/github.py` de forma más explícita en el enriquecimiento de
   `/ask` y `/deep`.

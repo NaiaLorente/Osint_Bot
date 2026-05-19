@@ -15,7 +15,7 @@ Bot de Telegram que recibe un nombre o usuario, busca resultados web en fuentes 
 
 ## Estructura del proyecto
 
-\`\`\`
+```
 osint_bot/
 ├── bot.py                 # Arranque del bot y registro de handlers
 ├── config.py              # Lectura de variables de entorno
@@ -38,7 +38,7 @@ osint_bot/
 │   └── llm.py             # Cliente de OpenRouter / Gemini para Q&A
 └── storage/
     └── sessions.py        # Estado en memoria por chat
-\`\`\`
+```
 
 ## Instalación
 
@@ -47,36 +47,36 @@ Requisitos:
 - Git
 - Docker (opcional)
 
-\`\`\`bash
+```bash
 git clone <repositorio>
 cd osint_bot
 python -m venv .venv
 .venv\Scripts\activate      # Windows
 pip install -r requirements.txt
 copy .env.example .env
-\`\`\`
+```
 
 Edita `.env` y completa las variables necesarias antes de arrancar el bot.
 
 ### Ejecutar localmente
 
-\`\`\`bash
+```bash
 python bot.py
-\`\`\`
+```
 
 ### Ejecutar con Docker
 
-\`\`\`bash
+```bash
 copy .env.example .env
 docker compose up -d --build
-\`\`\`
+```
 
 ### Probar los tests
 
-\`\`\`bash
+```bash
 pip install pytest
 TELEGRAM_TOKEN=dummy OPENROUTER_API_KEY=dummy pytest tests/ -v
-\`\`\`
+```
 
 ## Variables de configuración (`.env`)
 
