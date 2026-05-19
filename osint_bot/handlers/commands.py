@@ -153,7 +153,7 @@ async def perform_search(update: Update, query: str) -> None:
             session["disambiguation_pending"] = True
             set_session(update.effective_chat.id, session)
             await msg.reply_text(
-                "⚠️ No he encontrado resultados que coincidan exactamente con ese nombre.\n\n"
+                "No he encontrado resultados que coincidan exactamente con ese nombre.\n\n"
                 "¿Puedes añadir algún detalle para afinar la búsqueda?\n"
                 "<i>Ejemplos: ciudad, profesión, país, empresa, año aproximado…</i>\n\n"
                 "Escríbelo directamente y buscaré de nuevo.",

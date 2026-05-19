@@ -1,7 +1,6 @@
 # Arquitectura y funcionamiento del bot OSINT
 
-Este documento describe en profundidad cómo funciona el bot, cómo se relacionan
-sus componentes y qué busca exactamente en cada paso.
+Este documento describe en profundidad cómo funciona el bot, cómo se relacionan sus componentes y qué busca exactamente en cada paso.
 
 ## 1. Visión general
 
@@ -9,15 +8,17 @@ El bot es un servicio de Telegram que recibe consultas de usuario y responde con
 
 - un informe de enlaces web relevantes (`/search`),
 - respuestas en lenguaje natural basadas en el contenido de páginas web y
-  resultados anteriores (`/ask`).
+  resultados anteriores (`/ask`),
+- búsqueda profunda orientada a la pregunta (`/deep`),
+- y un resumen de sesión con `/report`.
 
 Su flujo principal es:
 
 1. El usuario envía un nombre o usuario.
 2. El bot busca en la web usando DuckDuckGo.
 3. El bot devuelve los mejores enlaces en Telegram.
-5. El usuario puede preguntar sobre esa búsqueda con `/ask`.
-6. El bot descarga páginas adicionales y usa un modelo de IA para responder.
+4. El usuario puede preguntar sobre esa búsqueda con `/ask` o `/deep`.
+5. El bot descarga páginas adicionales y usa un modelo de IA para responder.
 
 ## 2. Componentes principales
 
@@ -30,6 +31,8 @@ Su flujo principal es:
   - `/help`
   - `/search`
   - `/ask`
+  - `/deep`
+  - `/report`
   - `/clear`
   - mensajes de texto libre
 - Ejecuta polling con `app.run_polling(allowed_updates=Update.ALL_TYPES)`.
@@ -66,6 +69,8 @@ El estado se mantiene mientras el proceso esté vivo.
 - `/start` y `/help`: muestran el mensaje de bienvenida con ayuda.
 - `/search <texto>`: busca y muestra resultados.
 - `/ask <pregunta>`: responde preguntas usando la última búsqueda.
+- `/deep <pregunta>`: ejecuta una búsqueda profunda orientada a la pregunta.
+- `/report`: genera un informe de la sesión actual.
 - `/clear`: borra la sesión del chat.
 
 ### 3.2 Mensajes libres: `handlers/messages.py`
@@ -82,12 +87,24 @@ La heurística de pregunta considera signos de interrogación y palabras como:
 
 ### 4.1 `services/osint.py` → `run_full_search()`
 
-1. Ejecutar `search_duckduckgo_web(query, 10)`.
-2. Construir un diccionario `results` con:
+1. Ejecutar varias búsquedas en paralelo con DuckDuckGo:
+   - `query`
+   - `query site:linkedin.com`
+   - `query site:instagram.com`
+   - `query (site:twitter.com OR site:x.com)`
+   - `query site:facebook.com`
+   - `query (noticias OR entrevista OR perfil)`
+2. Ejecución en paralelo de:
+   - `search_wikipedia(query)`
+   - `search_wikidata(query)`
+   - `search_webmii(query)`
+3. Fusionar resultados web eliminando URLs repetidas y ordenar los enlaces más relevantes.
+4. Construir un diccionario `results` con:
    - `query`
    - `web` (lista de enlaces)
    - `history` (lista vacía inicialmente)
    - `html_links` (resumen en HTML de los enlaces)
+   - `wikipedia`, `wikidata`, `webmii`
 
 ### 4.2 `search_duckduckgo_web()`
 
@@ -96,14 +113,10 @@ En `sources/duckduckgo.py`:
 - usa la librería `ddgs` para buscar en DuckDuckGo.
 - devuelve enlaces, títulos y snippets.
 - también tiene funciones auxiliares para LinkedIn, X/Twitter, GitHub,
-  Instagram y noticias, aunque el flujo principal usa solo la búsqueda web.
-
-En `sources/duckduckgo.py`:
-
-- usa la librería `ddgs` para buscar en DuckDuckGo.
-- devuelve enlaces, títulos y snippets.
-- también tiene funciones auxiliares para LinkedIn, X/Twitter, GitHub,
-  Instagram y noticias, aunque el flujo principal usa solo la búsqueda web.
+  Instagram y noticias.
+- la búsqueda de GitHub no forma parte de la búsqueda inicial de `/search`.
+  En su lugar, `sources/github.py` se activa luego como enriquecimiento de `/ask`
+  cuando se detectan URLs `github.com`.
 
 ### 4.4 Salida para Telegram
 
@@ -200,19 +213,26 @@ Esto permite que el modelo reciba texto relevante sin ruido.
 
 ## 8. Componentes opcionales y no activos
 
-El proyecto incluye módulos adicionales en `sources/` que no forman parte del
-flujo principal actual:
+El proyecto incluye varios módulos `sources/` que aportan distintos tipos de
+información. El flujo principal de `/search` usa directamente estas fuentes:
 
-- `sources/github.py` — obtiene información pública de GitHub por username.
-- `sources/wikipedia.py` — consulta Wikipedia API.
-- `sources/wikidata.py` — consulta datos estructurados de Wikidata.
+- `sources/duckduckgo.py` — búsqueda web principal y consultas específicas a
+  sitios como LinkedIn, Instagram, X/Twitter, Facebook y noticias.
+- `sources/wikipedia.py` — busca la página de Wikipedia en el idioma configurado.
+- `sources/wikidata.py` — obtiene datos estructurados de Wikidata.
+- `sources/webmii.py` — agrega presencia web pública en Webmii.
 
-Estos módulos pueden usarse en un futuro, pero hoy no están integrados en la
-rutina de `/search` ni de `/ask`.
+Además, el flujo de Q&A (`/ask` y `/deep`) enriquece la sesión con:
 
-**Nota importante:** `sources/wikipedia.py` depende de `wikipediaapi`, que no
-aparece en `requirements.txt`. Eso significa que esa fuente no es utilizable
-sin instalarla manualmente.
+- `sources/structured.py` — extrae estructura schema.org / Open Graph de páginas
+  descargadas.
+- `sources/github.py` — consulta la API pública de GitHub SOLO si aparecen URLs
+  `github.com` en los resultados o en las páginas descargadas.
+- `services/vision.py` — analiza imágenes públicas cuando la pregunta es visual.
+
+**Nota importante:** `sources/wikipedia.py` depende de `wikipediaapi`, por lo que
+esta librería debe aparecer en `requirements.txt` para que el proyecto sea
+instalable y usable sin pasos manuales adicionales.
 
 ## 9. Configuración y variables de entorno
 
@@ -232,21 +252,46 @@ Variables clave:
 ### `/search` hace:
 
 - `run_full_search(query)`
-- `search_duckduckgo_web(query)`
-- construye `results` con `query`, `web`, `history`, `html_links`
-- guarda sesión con `set_session(chat_id, results)`
-- responde con texto HTML
+- lanza varias búsquedas DuckDuckGo en paralelo con variantes de perfil y noticias
+  (incluye LinkedIn, Instagram, X/Twitter, Facebook, notas de prensa).
+- ejecuta en paralelo `search_wikipedia(query)`, `search_wikidata(query)` y
+  `search_webmii(query)`.
+- fusiona y deduplica resultados web.
+- ordena por relevancia y construye `results` con:
+  - `query`
+  - `web`
+  - `history`
+  - `html_links`
+  - `wikipedia`
+  - `wikidata`
+  - `webmii`
+- guarda la sesión con `set_session(chat_id, results)`.
+- responde con un informe HTML y botones rápidos cuando es posible.
 
 ### `/ask` hace:
 
-- recupera sesión con `get_session(chat_id)`
-- si no hay sesión, pide `/search`
-- si no hay `pages`, ejecuta `fetch_top_pages(session)`
-- descarga páginas adicionales si la pregunta contiene URLs
-- llama a `answer_question(session, question)`
-- si la respuesta no existe, hace `targeted_search(query, question, pages)`
-- guarda `session['pages']` y `session['history']`
-- responde con el texto final
+- recupera sesión con `get_session(chat_id)`.
+- si no hay sesión, pide primero `/search`.
+- si no hay páginas descargadas, ejecuta `fetch_top_pages(session)`.
+- extrae URLs mencionadas en la pregunta y descarga su contenido cuando aparecen.
+- enriquece con datos estructurados, GitHub y visión si procede.
+- llama a `answer_question(session, question)` para generar la respuesta con Gemini.
+- si la respuesta parece no tener datos, guarda un estado de búsqueda profunda.
+- guarda `session['pages']`, `session['history']` y los enrichments.
+- responde con el texto final.
+
+### `/deep` hace:
+
+- ejecuta una búsqueda profunda orientada a la pregunta.
+- trae más páginas relevantes que no se descargaron con `/ask`.
+- vuelve a enriquecer con schema.org/OG, GitHub y visión.
+- reintenta `targeted_search()` como último recurso si la respuesta sigue siendo pobre.
+
+### `/report` hace:
+
+- genera un informe de la sesión actual.
+- incluye enlaces top, páginas analizadas, imágenes descritas y conversación.
+- lo envía como texto o como archivo si excede el límite de Telegram.
 
 ## 11. Limitaciones clave
 
@@ -255,16 +300,17 @@ Variables clave:
 - No extrae contenido privado ni hace login en plataformas.
 - No está diseñado para escalar a múltiples instancias sin cambiar el
   almacenamiento de sesión.
-- Las fuentes `GitHub`, `Wikipedia` y `Wikidata` están presentes, pero no
-  integradas en el flujo activo.
+- El flujo actual usa Wikipedia, Wikidata y Webmii en `/search`.
+- `sources/github.py` solo se activa como enriquecimiento de `/ask` y `/deep`
+  cuando aparecen URLs `github.com`.
 
 ## 12. Recomendaciones de mejora
 
-- Integrar `sources/github.py`, `sources/wikipedia.py` y `sources/wikidata.py`
-  en `services/osint.py`.
+- Integrar `sources/github.py` de forma más explícita en el enriquecimiento de
+  `/ask` y `/deep`.
 - Añadir persistencia de sesión con Redis o base de datos.
-- Controlar mejor los límites de tasa de DuckDuckGo y Google.
-- Añadir pruebas de integración del flujo `/ask` con el modelo.
+- Controlar mejor los límites de tasa y el uso de proxies para búsquedas web.
+- Añadir pruebas de integración del flujo `/ask` y `/deep` con el modelo.
 
 ---
 
