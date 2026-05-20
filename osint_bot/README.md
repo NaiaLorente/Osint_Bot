@@ -6,7 +6,7 @@ Bot de Telegram que recibe un nombre o usuario, busca resultados web en fuentes 
 
 - Ejecuta una búsqueda multivariante usando DuckDuckGo.
 - No depende de Google Search activa ni de Google Custom Search API.
-- Recopila contexto adicional de Wikipedia, Wikidata y Webmii en paralelo.
+- Recopila contexto adicional de Wikipedia y Wikidata en paralelo.
 - `/search` muestra resultados web estructurados y enlaces relevantes.
 - `/ask` responde preguntas usando la información de la sesión actual.
 - `/deep` hace una búsqueda profunda orientada a la pregunta.
@@ -28,7 +28,6 @@ osint_bot/
 │   ├── duckduckgo.py      # Búsqueda web y enlaces públicos
 │   ├── wikipedia.py       # Búsqueda en Wikipedia
 │   ├── wikidata.py        # Búsqueda en Wikidata
-│   ├── webmii.py          # Presencia web agregada
 │   ├── github.py          # Enriquecimiento de GitHub para urls github.com
 │   ├── fetcher.py         # Descarga y limpia texto de páginas web
 │   ├── images.py          # Extrae imágenes de páginas para visión
@@ -89,7 +88,7 @@ TELEGRAM_TOKEN=dummy OPENROUTER_API_KEY=dummy pytest tests/ -v
 - `WIKIPEDIA_LANG` — idioma de Wikipedia para las consultas.
 - `ALLOWED_USER_IDS` — IDs de Telegram autorizados, separados por comas.
 
-> Nota: el flujo actual usa DuckDuckGo + Wikipedia + Wikidata + Webmii. GitHub solo se usa como enriquecimiento en `/ask` y `/deep` cuando hay URLs `github.com`.
+> Nota: el flujo actual usa DuckDuckGo + Wikipedia + Wikidata. GitHub solo se usa como enriquecimiento en `/ask` y `/deep` cuando hay URLs `github.com`.
 
 ## Uso en Telegram
 
@@ -120,7 +119,7 @@ Comandos principales:
 ## Qué hace este proyecto
 
 - `/search` lanza varias búsquedas DuckDuckGo con variantes de perfil, noticias y resultados generales.
-- En paralelo consulta Wikipedia, Wikidata y Webmii.
+- En paralelo consulta Wikipedia y Wikidata.
 - Fusiona resultados web, depura duplicados y ordena por relevancia.
 - `/ask` usa los enlaces y páginas descargadas para responder con Gemini.
 - `/deep` busca más páginas relevantes según la pregunta e intenta un último fallback de búsqueda direccionada.
@@ -130,7 +129,7 @@ Comandos principales:
 
 1. El usuario inicia con `/search <persona>`.
 2. El bot ejecuta búsquedas DuckDuckGo y obtiene enlaces relevantes.
-3. Al mismo tiempo, consulta `Wikipedia`, `Wikidata` y `Webmii` para enriquecer el resultado.
+3. Al mismo tiempo, consulta `Wikipedia` y `Wikidata` para enriquecer el resultado.
 4. Devuelve un informe con enlaces web y datos estructurados.
 5. El usuario puede preguntar con `/ask` o `/deep`.
 6. En `/ask` y `/deep`, el bot descarga el texto de las páginas top y extrae datos estructurados.

@@ -97,14 +97,13 @@ La heurística de pregunta considera signos de interrogación y palabras como:
 2. Ejecución en paralelo de:
    - `search_wikipedia(query)`
    - `search_wikidata(query)`
-   - `search_webmii(query)`
 3. Fusionar resultados web eliminando URLs repetidas y ordenar los enlaces más relevantes.
 4. Construir un diccionario `results` con:
    - `query`
    - `web` (lista de enlaces)
    - `history` (lista vacía inicialmente)
    - `html_links` (resumen en HTML de los enlaces)
-   - `wikipedia`, `wikidata`, `webmii`
+   - `wikipedia`, `wikidata`
 
 ### 4.2 `search_duckduckgo_web()`
 
@@ -220,7 +219,6 @@ información. El flujo principal de `/search` usa directamente estas fuentes:
   sitios como LinkedIn, Instagram, X/Twitter, Facebook y noticias.
 - `sources/wikipedia.py` — busca la página de Wikipedia en el idioma configurado.
 - `sources/wikidata.py` — obtiene datos estructurados de Wikidata.
-- `sources/webmii.py` — agrega presencia web pública en Webmii.
 
 Además, el flujo de Q&A (`/ask` y `/deep`) enriquece la sesión con:
 
@@ -254,8 +252,7 @@ Variables clave:
 - `run_full_search(query)`
 - lanza varias búsquedas DuckDuckGo en paralelo con variantes de perfil y noticias
   (incluye LinkedIn, Instagram, X/Twitter, Facebook, notas de prensa).
-- ejecuta en paralelo `search_wikipedia(query)`, `search_wikidata(query)` y
-  `search_webmii(query)`.
+- ejecuta en paralelo `search_wikipedia(query)` y `search_wikidata(query)`.
 - fusiona y deduplica resultados web.
 - ordena por relevancia y construye `results` con:
   - `query`
@@ -264,7 +261,6 @@ Variables clave:
   - `html_links`
   - `wikipedia`
   - `wikidata`
-  - `webmii`
 - guarda la sesión con `set_session(chat_id, results)`.
 - responde con un informe HTML y botones rápidos cuando es posible.
 
@@ -300,7 +296,7 @@ Variables clave:
 - No extrae contenido privado ni hace login en plataformas.
 - No está diseñado para escalar a múltiples instancias sin cambiar el
   almacenamiento de sesión.
-- El flujo actual usa Wikipedia, Wikidata y Webmii en `/search`.
+- El flujo actual usa Wikipedia y Wikidata en `/search`.
 - `sources/github.py` solo se activa como enriquecimiento de `/ask` y `/deep`
   cuando aparecen URLs `github.com`.
 
